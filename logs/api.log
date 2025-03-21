@@ -1,0 +1,66 @@
+2025-03-17 14:18:41,183 - web_analyzer_api - INFO - Analyzing content with title: Introduction to Old Money Fashion
+2025-03-17 14:18:41,184 - web_analyzer_api.integration - INFO - Starting content analysis for: Introduction to Old Money Fashion
+2025-03-17 14:18:41,184 - web_analyzer_api.integration - INFO - Analysis completed in 0.00 seconds. Found 6 suggestions.
+2025-03-17 14:20:49,161 - web_analyzer_api - INFO - Analyzing content with title: Introduction to Old Money Fashion
+2025-03-17 14:20:49,161 - web_analyzer_api.integration - INFO - Starting content analysis for: Introduction to Old Money Fashion
+2025-03-17 14:20:49,162 - web_analyzer_api.integration - INFO - Analysis completed in 0.00 seconds. Found 6 suggestions.
+2025-03-17 14:58:35,532 - web_analyzer_api - INFO - Analyzing content with title: Introduction to Old Money Fashion
+2025-03-17 14:58:35,533 - web_analyzer_api.integration - INFO - Starting content analysis for: Introduction to Old Money Fashion
+2025-03-17 14:58:35,533 - web_analyzer_api.integration - INFO - Analysis completed in 0.00 seconds. Found 6 suggestions.
+2025-03-17 15:44:03,098 - web_analyzer_api - INFO - Analyzing content with title: Men's Fashion Guide: Body Shapes and Color Analysis
+2025-03-17 15:44:03,098 - web_analyzer_api.integration - INFO - Starting content analysis for: Men's Fashion Guide: Body Shapes and Color Analysis
+2025-03-17 15:44:03,099 - web_analyzer_api.integration - INFO - Analysis completed in 0.00 seconds. Found 1 suggestions.
+2025-03-17 15:56:25,412 - web_analyzer_api - INFO - Analyzing content with title: Men's Fashion Guide: Body Shapes and Color Analysis
+2025-03-17 15:56:25,413 - web_analyzer_api.integration - INFO - Starting content analysis for: Men's Fashion Guide: Body Shapes and Color Analysis
+2025-03-17 15:56:25,414 - web_analyzer_api.integration - INFO - Analysis completed in 0.00 seconds. Found 11 suggestions.
+2025-03-17 18:19:05,057 - web_analyzer_api - INFO - Analyzing content with title: Men's Complete Fashion Guide: Body Shapes and Colour Analysis
+2025-03-17 18:19:05,058 - web_analyzer_api.integration - INFO - Starting content analysis for: Men's Complete Fashion Guide: Body Shapes and Colour Analysis
+2025-03-17 18:19:05,062 - web_analyzer_api.integration - INFO - Analysis completed in 0.00 seconds. Found 16 suggestions.
+2025-03-17 18:34:19,266 - web_analyzer_api - INFO - Analyzing content with title: Men's Complete Fashion Guide: Body Shapes and Colour Analysis
+2025-03-17 18:34:19,266 - web_analyzer_api.integration - INFO - Starting content analysis for: Men's Complete Fashion Guide: Body Shapes and Colour Analysis
+2025-03-17 18:34:19,270 - web_analyzer_api.integration - INFO - Analysis completed in 0.00 seconds. Found 3 suggestions.
+2025-03-17 18:38:49,105 - web_analyzer_api - INFO - Analyzing content with title: Test Article for site: default
+2025-03-17 18:38:49,105 - web_analyzer_api.integration - INFO - Starting content analysis for: Test Article (site: default)
+2025-03-17 18:38:49,105 - web_analyzer_api.integration - INFO - Analysis completed in 0.00 seconds. Found 0 suggestions.
+2025-03-17 18:38:49,107 - web_analyzer_api - INFO - Analyzing content with title: Test Article for site: default
+2025-03-17 18:38:49,108 - web_analyzer_api - INFO - Analyzing content with title: Test Article for site: default
+2025-03-17 18:38:49,110 - web_analyzer_api - INFO - Analyzing content with title: Test Article for site: default
+2025-03-17 18:38:49,110 - web_analyzer_api.integration - INFO - Starting content analysis for: Test Article (site: default)
+2025-03-17 18:38:49,110 - web_analyzer_api.integration - INFO - Analysis completed in 0.00 seconds. Found 0 suggestions.
+2025-03-17 18:38:49,111 - web_analyzer_api - INFO - Analyzing content with title: Test Article for site: thevou
+2025-03-17 18:38:49,111 - web_analyzer_api.integration - INFO - Starting content analysis for: Test Article (site: thevou)
+2025-03-17 18:38:49,111 - web_analyzer_api.integration - INFO - Analysis completed in 0.00 seconds. Found 0 suggestions.
+2025-03-18 11:25:33,217 - web_analyzer_api - INFO - Analyzing content with title: Introduction to Old Money Fashion for site: default
+2025-03-18 11:25:33,224 - web_analyzer_api.integration - INFO - Starting content analysis for: Introduction to Old Money Fashion (site: default)
+2025-03-18 11:25:33,228 - web_analyzer_api.integration - INFO - Analysis completed in 0.00 seconds. Found 1 suggestions.
+2025-03-18 11:33:01,687 - web_analyzer_api - INFO - Starting enhanced analysis with title: Introduction to Old Money Fashion for site: default
+2025-03-18 11:33:01,699 - web_analyzer_api.enhanced_integration - INFO - Starting enhanced content analysis for: Introduction to Old Money Fashion
+2025-03-18 11:33:01,701 - web_analyzer.enhanced_analyzer - INFO - Starting enhanced analysis for: Introduction to Old Money Fashion
+2025-03-18 11:33:03,809 - web_analyzer_api.enhanced_integration - INFO - Analysis completed in 2.11 seconds. Found 2 suggestions.
+2025-03-18 11:38:31,080 - web_analyzer_api - INFO - Starting bulk processing for site: default, 2 items
+2025-03-18 11:38:31,083 - web_analyzer_api.bulk_integration - INFO - Starting bulk processing job for 2 items, site ID: default
+2025-03-18 11:38:31,098 - web_analyzer.bulk_processor - INFO - Starting bulk processing of 2 items
+2025-03-18 11:38:31,098 - web_analyzer.bulk_processor - INFO - Processing batch 1, items 1-2
+2025-03-18 11:38:31,101 - web_analyzer.enhanced_analyzer - INFO - Starting enhanced analysis for: Introduction to Old Money Fashion
+2025-03-18 11:38:31,112 - web_analyzer.enhanced_analyzer - INFO - Starting enhanced analysis for: Dressing for Inverted Triangle Body Shape
+2025-03-18 11:38:31,218 - web_analyzer.bulk_processor - INFO - Saved intermediate results to results/default/intermediate_results_20250318_113831.json
+2025-03-18 11:38:31,218 - web_analyzer.bulk_processor - INFO - Bulk processing completed in 0.12 seconds
+2025-03-18 11:38:31,218 - web_analyzer.bulk_processor - INFO - Processed 2 items, 2 successful, 0 failed
+2025-03-18 11:38:31,218 - web_analyzer.bulk_processor - INFO - Generated 2 link suggestions
+2025-03-18 11:38:31,219 - web_analyzer.bulk_processor - INFO - Saved final results to results/default/bulk_results_20250318_113831.json
+2025-03-18 11:38:31,219 - web_analyzer.bulk_processor - INFO - Saved statistics to results/default/bulk_stats_20250318_113831.json
+2025-03-18 11:38:31,220 - web_analyzer.bulk_processor - ERROR - Error generating report: '\n                    font-family'
+2025-03-18 11:38:31,221 - web_analyzer_api.bulk_integration - INFO - Bulk processing job job_20250318_113831_default completed
+2025-03-18 11:39:04,044 - web_analyzer_api - INFO - Getting job status for job: job_20250318_113831_default, site: default
+2025-03-18 11:39:16,955 - web_analyzer_api - INFO - Listing jobs for site: default
+2025-03-18 11:39:28,224 - web_analyzer_api - INFO - Analyzing content with title: Test Article for site: default
+2025-03-18 11:39:28,227 - web_analyzer_api.integration - INFO - Starting content analysis for: Test Article (site: default)
+2025-03-18 11:39:28,228 - web_analyzer_api.integration - INFO - Analysis completed in 0.00 seconds. Found 0 suggestions.
+2025-03-18 11:39:28,232 - web_analyzer_api - INFO - Analyzing content with title: Test Article for site: default
+2025-03-18 11:39:28,235 - web_analyzer_api - INFO - Analyzing content with title: Test Article for site: default
+2025-03-18 11:39:28,238 - web_analyzer_api - INFO - Analyzing content with title: Test Article for site: default
+2025-03-18 11:39:28,239 - web_analyzer_api.integration - INFO - Starting content analysis for: Test Article (site: default)
+2025-03-18 11:39:28,240 - web_analyzer_api.integration - INFO - Analysis completed in 0.00 seconds. Found 0 suggestions.
+2025-03-18 11:39:28,245 - web_analyzer_api - INFO - Analyzing content with title: Test Article for site: thevou
+2025-03-18 11:39:28,245 - web_analyzer_api.integration - INFO - Starting content analysis for: Test Article (site: thevou)
+2025-03-18 11:39:28,245 - web_analyzer_api.integration - INFO - Analysis completed in 0.00 seconds. Found 0 suggestions.

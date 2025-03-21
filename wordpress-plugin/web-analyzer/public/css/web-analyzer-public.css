@@ -1,0 +1,16 @@
+/**
+ * Public styles for the Web Analyzer plugin
+ *
+ * These styles are minimal since we don't want to interfere with the theme's styling.
+ * They only apply to elements specifically added by our plugin.
+ */
+
+/* Tracked links styling - Optional enhancement */
+a.web-analyzer-tracked-link {
+    /* No specific styling by default, to match theme links */
+}
+
+/* Hover effects for tracked links - Optional */
+a.web-analyzer-tracked-link:hover {
+    /* No specific styling by default, to match theme links */
+}

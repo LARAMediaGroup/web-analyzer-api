@@ -1,0 +1,112 @@
+{
+  "results": [
+    {
+      "id": "1",
+      "title": "Introduction to Old Money Fashion",
+      "url": "https://example.com/article1",
+      "status": "success",
+      "link_suggestions": [
+        {
+          "anchor_text": "Old money",
+          "target_url": "https://thevou.com/blog/complete-old-money-fashion-guide-for-young-men/",
+          "context": "**Old money** fashion is characterized by t...",
+          "confidence": 0.85,
+          "paragraph_index": 0,
+          "relevance": 0.8900000000000001
+        },
+        {
+          "anchor_text": "Old money",
+          "target_url": "https://thevou.com/blog/old-money-hairstyle-guide/",
+          "context": "**Old money** fashion is characterized by t...",
+          "confidence": 0.85,
+          "paragraph_index": 0,
+          "relevance": 0.79
+        }
+      ],
+      "analysis": {
+        "fashion_entities": {
+          "clothing_items": [
+            "Classic pieces like tailored blazers"
+          ],
+          "brands": [],
+          "styles": [
+            "Old Money",
+            "timeless",
+            "luxury",
+            "Classic",
+            "timeless elegance and understated luxury"
+          ],
+          "materials": [],
+          "body_shapes": [],
+          "colours": [],
+          "seasonal": []
+        },
+        "primary_theme": "Old Money",
+        "semantic_structure": {
+          "introduction": 0,
+          "body": [],
+          "conclusion": null,
+          "sections": []
+        },
+        "primary_topic": "old",
+        "subtopics": [
+          "money",
+          "characterized",
+          "timeless",
+          "elegance",
+          "understated"
+        ]
+      },
+      "processing_time": 0.10664486885070801
+    },
+    {
+      "id": "2",
+      "title": "Dressing for Inverted Triangle Body Shape",
+      "url": "https://example.com/article2",
+      "status": "success",
+      "link_suggestions": [],
+      "analysis": {
+        "fashion_entities": {
+          "clothing_items": [],
+          "brands": [],
+          "styles": [],
+          "materials": [],
+          "body_shapes": [
+            "Inverted Triangle Body Shape",
+            "broad shoulders",
+            "athletic build"
+          ],
+          "colours": [],
+          "seasonal": []
+        },
+        "primary_theme": "Inverted Triangle Body Shape",
+        "semantic_structure": {
+          "introduction": 0,
+          "body": [],
+          "conclusion": null,
+          "sections": []
+        },
+        "primary_topic": "inverted",
+        "subtopics": [
+          "triangle",
+          "body",
+          "shape",
+          "men",
+          "characterized"
+        ]
+      },
+      "processing_time": 0.10378313064575195
+    }
+  ],
+  "stats": {
+    "total_items": 2,
+    "processed_items": 2,
+    "successful_items": 2,
+    "failed_items": 0,
+    "total_suggestions": 2,
+    "start_time": "2025-03-18T11:38:31.098712",
+    "end_time": null,
+    "duration_seconds": 0,
+    "status": "in_progress"
+  }
+}

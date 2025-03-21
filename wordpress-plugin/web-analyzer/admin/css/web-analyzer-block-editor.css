@@ -1,0 +1,74 @@
+/**
+ * Block Editor styles for the Web Analyzer plugin
+ */
+
+.web-analyzer-sidebar-content {
+    padding: 10px 0;
+}
+
+.web-analyzer-actions {
+    margin-bottom: 15px;
+    text-align: center;
+}
+
+.web-analyzer-suggestions {
+    padding: 10px 0;
+}
+
+.web-analyzer-suggestions .suggestions-list {
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+.web-analyzer-suggestions .suggestion-item {
+    background: #f0f0f1;
+    border-radius: 3px;
+    margin-bottom: 15px;
+    overflow: hidden;
+}
+
+.web-analyzer-suggestions .suggestion-header {
+    background: #fafafa;
+    border-bottom: 1px solid #ddd;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+}
+
+.web-analyzer-suggestions .anchor-text {
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 180px;
+}
+
+.web-analyzer-suggestions .suggestion-content {
+    padding: 10px 12px;
+}
+
+.web-analyzer-suggestions .context {
+    font-size: 13px;
+    margin-bottom: 10px;
+}
+
+.web-analyzer-suggestions .context strong,
+.web-analyzer-suggestions .context b {
+    background: #ffe399;
+    font-weight: normal;
+}
+
+.web-analyzer-suggestions .target-url {
+    font-size: 12px;
+    word-break: break-all;
+}
+
+.web-analyzer-suggestions .target-url a {
+    color: #2271b1;
+    text-decoration: none;
+}
+
+.web-analyzer-suggestions .target-url a:hover {
+    text-decoration: underline;
+}
