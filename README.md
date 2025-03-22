@@ -50,28 +50,39 @@ docker build -t web_analyzer_service .
 
 # Run with Docker
 docker run -p 8000:8000 web_analyzer_service
-```
 
-### Deploy to Hostinger
-
-1. Package the application:
-```bash
-tar -czvf web_analyzer_service.tar.gz .
-```
-
-2. Upload to Hostinger:
-```bash
-scp web_analyzer_service.tar.gz username@your-hostinger-server.com:~/
-```
-
-3. SSH to Hostinger and deploy:
-```bash
-ssh username@your-hostinger-server.com
-mkdir -p ~/web_analyzer_service
-cd ~/web_analyzer_service
-tar -xzvf ~/web_analyzer_service.tar.gz
+# Alternative: Run with Docker Compose
 docker-compose up -d
 ```
+
+### Deploy to Render
+
+1. Create a GitHub repository and push your code:
+```bash
+git init
+git add .
+git commit -m "Initial commit"
+git remote add origin https://github.com/yourusername/web_analyzer_service.git
+git push -u origin main
+```
+
+2. In Render Dashboard:
+   - Create a new Web Service
+   - Connect your GitHub repository
+   - Select "Docker" as the build method
+   - Set the environment variables:
+     - `SECRET_KEY` (generate a secure key)
+     - `DEBUG` (set to "False" for production)
+     - `MAX_WORKERS` (set to 4 or appropriate value)
+     - `NLTK_DATA` (set to "/app/nltk_data")
+   - Deploy the service
+
+3. GitHub Actions CI/CD (Optional):
+   - CI/CD workflow is preconfigured in `.github/workflows/deploy.yml`
+   - Set the required secrets in your GitHub repository:
+     - `RENDER_API_KEY`: Your Render API key
+     - `RENDER_SERVICE_ID`: Your Render service ID
+   - Each push to main will trigger a deployment
 
 ## API Endpoints
 
@@ -116,7 +127,10 @@ Response:
 
 ## Next Steps
 
-1. Implement the WordPress plugin for frontend integration
-2. Create content editor integration for inline link suggestions
-3. Develop link insertion engine for automated link placement
-4. Implement bulk processing for existing content
+1. Configure Redis for production-ready caching (currently using file-based caching)
+2. Setup monitoring and logging with a service like DataDog or Prometheus
+3. Create an admin dashboard for link analytics and performance metrics
+4. Extend the WordPress plugin for automated link insertion
+5. Add support for custom taxonomies and post types in WordPress
+6. Implement A/B testing framework for link placement effectiveness
+7. Develop an API client library for easier integration with other platforms

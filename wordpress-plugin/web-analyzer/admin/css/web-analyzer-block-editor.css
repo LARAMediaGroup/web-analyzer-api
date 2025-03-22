@@ -25,50 +25,104 @@
     border-radius: 3px;
     margin-bottom: 15px;
     overflow: hidden;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.web-analyzer-suggestions .suggestion-item.selected {
+    box-shadow: 0 0 0 2px #2271b1;
 }
 
 .web-analyzer-suggestions .suggestion-header {
     background: #fafafa;
     border-bottom: 1px solid #ddd;
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
     padding: 8px 12px;
 }
 
 .web-analyzer-suggestions .anchor-text {
     font-weight: 600;
-    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 180px;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.web-analyzer-suggestions .suggestion-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 4px;
+}
+
+.web-analyzer-suggestions .suggestion-actions button {
+    flex: 1;
+    justify-content: center;
 }
 
 .web-analyzer-suggestions .suggestion-content {
     padding: 10px 12px;
 }
 
+.web-analyzer-suggestions .confidence {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: #666;
+}
+
+.web-analyzer-suggestions .confidence .label {
+    margin-right: 4px;
+}
+
+.web-analyzer-suggestions .confidence .value {
+    font-weight: 600;
+}
+
 .web-analyzer-suggestions .context {
     font-size: 13px;
     margin-bottom: 10px;
+    padding: 8px;
+    background: #fff;
+    border-radius: 3px;
+    border-left: 3px solid #2271b1;
 }
 
 .web-analyzer-suggestions .context strong,
 .web-analyzer-suggestions .context b {
     background: #ffe399;
     font-weight: normal;
+    padding: 2px 0;
 }
 
 .web-analyzer-suggestions .target-url {
     font-size: 12px;
     word-break: break-all;
+    padding-top: 8px;
+    border-top: 1px dashed #ddd;
 }
 
 .web-analyzer-suggestions .target-url a {
     color: #2271b1;
     text-decoration: none;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .web-analyzer-suggestions .target-url a:hover {
     text-decoration: underline;
+}
+
+.web-analyzer-suggestions .search-results {
+    background: #f9f9f9;
+    padding: 8px 12px;
+    border-top: 1px solid #ddd;
+    font-size: 12px;
+}
+
+.web-analyzer-suggestions .search-results-heading {
+    margin: 0;
+    color: #666;
 }

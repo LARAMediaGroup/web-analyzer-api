@@ -9,12 +9,16 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./data:/app/data
+      - ./results:/app/results
+      - ./config:/app/config
       - ./config.json:/app/config.json
+      - ./nltk_data:/app/nltk_data
     environment:
       - SECRET_KEY=${SECRET_KEY:-changeMe123!}
       - DEBUG=${DEBUG:-False}
       - MAX_WORKERS=4
       - PYTHONUNBUFFERED=1
+      - NLTK_DATA=/app/nltk_data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
