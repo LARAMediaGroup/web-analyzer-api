@@ -13,14 +13,19 @@ services:
       - ./config:/app/config
       - ./config.json:/app/config.json
       - ./nltk_data:/app/nltk_data
+      - ./cache:/app/cache
     environment:
       - SECRET_KEY=${SECRET_KEY:-changeMe123!}
       - DEBUG=${DEBUG:-False}
       - MAX_WORKERS=4
       - PYTHONUNBUFFERED=1
       - NLTK_DATA=/app/nltk_data
+      - ALLOWED_ORIGINS=http://localhost:8080,https://thevou.com,https://www.thevou.com,https://dev.thevou.com
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CACHE_TTL=3600
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 5s

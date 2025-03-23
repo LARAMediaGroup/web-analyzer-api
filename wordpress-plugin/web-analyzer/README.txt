@@ -99,6 +99,33 @@ No, all content analysis happens on external API servers, not on your WordPress 
 
 Yes, in the settings you can adjust relevance thresholds, confidence requirements, and prioritize different types of content for linking.
 
+= Why is my API connection not working? =
+
+If you're experiencing connection issues, the plugin now includes a comprehensive debugging interface:
+
+1. Go to Web Analyzer > Settings in your WordPress admin
+2. Scroll down to the "Debug Information" section
+3. Click "Run Detailed Test" to perform a step-by-step diagnostic
+
+The debug test will check:
+* Your API URL format
+* API key validation
+* API health endpoint connectivity
+* Site configuration verification
+
+Each step will be marked as success, warning, or error with detailed information to help you resolve any issues.
+
+= How can I check if my server is properly configured? =
+
+In the Debug Information section, click "Check Server Environment" to verify that your server meets all the requirements for proper plugin operation. This will check:
+* PHP version
+* WordPress version
+* cURL availability
+* JSON support
+* Memory limits
+* Execution time settings
+* Potential conflicts with other plugins
+
 == Screenshots ==
 
 1. Block Editor sidebar with fashion-specific link suggestions
@@ -108,6 +135,16 @@ Yes, in the settings you can adjust relevance thresholds, confidence requirement
 5. Bulk analysis tool for existing content
 
 == Changelog ==
+
+= 1.2.0 =
+* Added comprehensive debugging interface for connection troubleshooting
+* Implemented step-by-step diagnostic tests for API connectivity
+* Added server environment check functionality
+* Enhanced error handling and reporting
+* Improved settings UI with clearer sections and documentation
+* Updated API authentication process for better security
+* Fixed various JavaScript compatibility issues
+* Added CSS improvements for better mobile responsiveness
 
 = 1.1.0 =
 * Enhanced Block Editor integration with improved link insertion
@@ -121,6 +158,9 @@ Yes, in the settings you can adjust relevance thresholds, confidence requirement
 * Initial release
 
 == Upgrade Notice ==
+
+= 1.2.0 =
+Important update with enhanced debugging capabilities to help troubleshoot connection issues. The new diagnostic tools make it much easier to identify and resolve API configuration problems.
 
 = 1.1.0 =
 Major improvement to the Block Editor integration with smart text finding and precise link insertion capabilities.

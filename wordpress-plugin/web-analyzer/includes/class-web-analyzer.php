@@ -133,6 +133,9 @@ class Web_Analyzer {
             
         // Save settings
         $this->loader->add_action('admin_init', $plugin_admin, 'register_settings');
+        
+        // Register AJAX handlers
+        $this->loader->add_action('wp_ajax_web_analyzer_check_environment', $plugin_admin, 'check_environment');
     }
 
     /**

@@ -3,7 +3,7 @@
  * Plugin Name: Web Analyzer for Internal Linking
  * Plugin URI: https://thevou.com/web-analyzer
  * Description: Analyze content and suggest relevant internal links based on fashion topics
- * Version: 1.0.0
+ * Version: 1.2.0
  * Author: The VOU
  * Author URI: https://thevou.com
  * Text Domain: web-analyzer
@@ -17,7 +17,7 @@ if (!defined('WPINC')) {
 }
 
 // Define plugin constants
-define('WEB_ANALYZER_VERSION', '1.0.0');
+define('WEB_ANALYZER_VERSION', '1.2.0');
 define('WEB_ANALYZER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WEB_ANALYZER_PLUGIN_URL', plugin_dir_url(__FILE__));
 
