@@ -100,6 +100,13 @@ class Web_Analyzer_API {
                         return is_string($param) || is_numeric($param);
                     }
                 ),
+                'knowledge_building' => array(
+                    'required' => false,
+                    'default' => false,
+                    'validate_callback' => function($param) {
+                        return is_bool($param) || (is_string($param) && in_array(strtolower($param), array('true', 'false', '1', '0')));
+                    }
+                ),
             ),
         ));
         
@@ -132,6 +139,35 @@ class Web_Analyzer_API {
                 ),
             ),
         ));
+        
+        // Knowledge database stats endpoint
+        register_rest_route('web-analyzer/v1', '/knowledge/stats', array(
+            'methods' => 'GET',
+            'callback' => array($this, 'get_knowledge_db_stats_endpoint'),
+            'permission_callback' => array($this, 'check_permissions'),
+        ));
+    }
+    
+    /**
+     * REST API endpoint for knowledge database stats.
+     *
+     * @since    1.2.1
+     * @return   WP_REST_Response
+     */
+    public function get_knowledge_db_stats_endpoint() {
+        $result = $this->get_knowledge_db_stats();
+        
+        if (is_wp_error($result)) {
+            return new WP_REST_Response(array(
+                'success' => false,
+                'message' => $result->get_error_message()
+            ), 500);
+        }
+        
+        return new WP_REST_Response(array(
+            'success' => true,
+            'knowledge_db' => $result['knowledge_db']
+        ), 200);
     }
     
     /**
@@ -203,6 +239,7 @@ class Web_Analyzer_API {
         $post_type = $request->get_param('post_type');
         $limit = $request->get_param('limit');
         $categories = $request->get_param('categories');
+        $knowledge_building = $request->get_param('knowledge_building');
         
         // Default to 'post' if no post type specified
         if (!$post_type) {
@@ -215,6 +252,9 @@ class Web_Analyzer_API {
         } else if ($limit > 100) {
             $limit = 100;
         }
+        
+        // Convert knowledge_building parameter to boolean
+        $knowledge_building = filter_var($knowledge_building, FILTER_VALIDATE_BOOLEAN);
         
         // Query posts
         $args = array(
@@ -250,7 +290,7 @@ class Web_Analyzer_API {
         }
         
         // Start bulk processing
-        $result = $this->request_bulk_processing($content_items);
+        $result = $this->request_bulk_processing($content_items, $knowledge_building);
         
         if (is_wp_error($result)) {
             return new WP_REST_Response(array(
@@ -265,7 +305,8 @@ class Web_Analyzer_API {
         return new WP_REST_Response(array(
             'success' => true,
             'job' => $result,
-            'post_count' => count($content_items)
+            'post_count' => count($content_items),
+            'knowledge_building' => $knowledge_building
         ), 200);
     }
     
@@ -424,9 +465,10 @@ class Web_Analyzer_API {
      *
      * @since    1.0.0
      * @param    array     $content_items    The content items to process.
+     * @param    bool      $knowledge_building  Whether to run in knowledge building mode.
      * @return   array|WP_Error
      */
-    public function request_bulk_processing($content_items) {
+    public function request_bulk_processing($content_items, $knowledge_building = false) {
         // Get API settings
         $api_url = get_option('web_analyzer_api_url');
         $api_key = get_option('web_analyzer_api_key');
@@ -450,7 +492,8 @@ class Web_Analyzer_API {
             ),
             'body' => json_encode(array(
                 'content_items' => $content_items,
-                'site_id' => $site_id
+                'site_id' => $site_id,
+                'knowledge_building' => $knowledge_building
             )),
         );
         
@@ -608,5 +651,68 @@ class Web_Analyzer_API {
              LEFT JOIN $table_name s ON a.suggestion_id = s.id
              WHERE s.id IS NULL AND a.clicks = 0"
         );
+    }
+    
+    /**
+     * Get knowledge database statistics from the API.
+     *
+     * @since    1.2.1
+     * @return   array|WP_Error
+     */
+    public function get_knowledge_db_stats() {
+        // Get API settings
+        $api_url = get_option('web_analyzer_api_url');
+        $api_key = get_option('web_analyzer_api_key');
+        
+        if (empty($api_url) || empty($api_key)) {
+            return new WP_Error('api_not_configured', 'API not configured. Please set the API URL and API Key in the plugin settings.');
+        }
+        
+        // Prepare the request
+        $request_url = trailingslashit($api_url) . 'knowledge/stats';
+        
+        $args = array(
+            'method' => 'GET',
+            'timeout' => 30,
+            'redirection' => 5,
+            'httpversion' => '1.1',
+            'headers' => array(
+                'X-API-Key' => $api_key
+            )
+        );
+        
+        // Make the request
+        $response = wp_remote_get($request_url, $args);
+        
+        // Check for errors
+        if (is_wp_error($response)) {
+            return $response;
+        }
+        
+        // Check response code
+        $response_code = wp_remote_retrieve_response_code($response);
+        if ($response_code != 200) {
+            $body = wp_remote_retrieve_body($response);
+            $error_message = 'API Error';
+            
+            if (!empty($body)) {
+                $body_json = json_decode($body, true);
+                if (isset($body_json['detail'])) {
+                    $error_message = $body_json['detail'];
+                }
+            }
+            
+            return new WP_Error('api_error', $error_message . ' (Code: ' . $response_code . ')');
+        }
+        
+        // Parse response
+        $body = wp_remote_retrieve_body($response);
+        $response_data = json_decode($body, true);
+        
+        if (!isset($response_data['knowledge_db'])) {
+            return new WP_Error('api_invalid_response', 'Invalid API response format');
+        }
+        
+        return $response_data;
     }
 }

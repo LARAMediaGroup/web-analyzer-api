@@ -24,7 +24,8 @@ active_jobs = {}
 async def start_bulk_processing(
     content_items: List[Dict[str, Any]],
     site_id: Optional[str] = None,
-    batch_size: Optional[int] = None
+    batch_size: Optional[int] = None,
+    knowledge_building: bool = False
 ) -> Dict[str, Any]:
     """
     Start a bulk processing job.
@@ -33,19 +34,20 @@ async def start_bulk_processing(
         content_items (List[Dict[str, Any]]): The content items to process
         site_id (str, optional): The site identifier
         batch_size (int, optional): The batch size
+        knowledge_building (bool, optional): Whether to run in knowledge building mode
         
     Returns:
         Dict[str, Any]: Job information
     """
     start_time = time.time()
-    logger.info(f"Starting bulk processing job for {len(content_items)} items, site ID: {site_id}")
+    logger.info(f"Starting bulk processing job for {len(content_items)} items, site ID: {site_id}, knowledge building: {knowledge_building}")
 
     try:
         # Generate a job ID
         job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{site_id or 'default'}"
         
         # Create a new processor
-        processor = BulkContentProcessor()
+        processor = BulkContentProcessor(site_id=site_id)
         
         # Store in active jobs
         active_jobs[job_id] = {
@@ -55,6 +57,7 @@ async def start_bulk_processing(
             "total_items": len(content_items),
             "processed_items": 0,
             "status": "starting",
+            "knowledge_building": knowledge_building,
             "last_update": time.time()
         }
         
@@ -69,7 +72,8 @@ async def start_bulk_processing(
                 content_items=content_items,
                 target_pages=target_urls,
                 site_id=site_id,
-                batch_size=batch_size
+                batch_size=batch_size,
+                knowledge_building=knowledge_building
             )
         )
         
@@ -77,7 +81,8 @@ async def start_bulk_processing(
             "job_id": job_id,
             "status": "started",
             "total_items": len(content_items),
-            "site_id": site_id
+            "site_id": site_id,
+            "knowledge_building": knowledge_building
         }
 
     except Exception as e:
@@ -93,7 +98,8 @@ async def _run_bulk_processing(
     content_items: List[Dict[str, Any]],
     target_pages: List[Dict[str, str]],
     site_id: Optional[str] = None,
-    batch_size: Optional[int] = None
+    batch_size: Optional[int] = None,
+    knowledge_building: bool = False
 ) -> None:
     """
     Run the bulk processing job.
@@ -105,6 +111,7 @@ async def _run_bulk_processing(
         target_pages (List[Dict[str, str]]): The target pages for links
         site_id (str, optional): The site identifier
         batch_size (int, optional): The batch size
+        knowledge_building (bool, optional): Whether to run in knowledge building mode
     """
     try:
         # Update job status
@@ -119,13 +126,22 @@ async def _run_bulk_processing(
         # Register callback
         processor.register_progress_callback(progress_callback)
         
+        # Get current knowledge database stats
+        db_stats = processor.knowledge_db.get_database_stats()
+        active_jobs[job_id]["db_stats_before"] = db_stats
+        
         # Run the processor
         results, stats = await processor.process_content_items(
             content_items=content_items,
             target_pages=target_pages,
             site_id=site_id,
-            batch_size=batch_size
+            batch_size=batch_size,
+            knowledge_building_mode=knowledge_building
         )
+        
+        # Get updated knowledge database stats
+        db_stats_after = processor.knowledge_db.get_database_stats()
+        active_jobs[job_id]["db_stats_after"] = db_stats_after
         
         # Generate report
         report_path = await processor.generate_report(
@@ -140,7 +156,7 @@ async def _run_bulk_processing(
         active_jobs[job_id]["report_path"] = report_path
         active_jobs[job_id]["stats"] = stats
         
-        logger.info(f"Bulk processing job {job_id} completed")
+        logger.info(f"Bulk processing job {job_id} completed (knowledge building: {knowledge_building})")
     
     except Exception as e:
         logger.error(f"Error running bulk processing job {job_id}: {str(e)}")
@@ -177,6 +193,14 @@ def get_job_status(job_id: str) -> Dict[str, Any]:
     start_time = job.get("start_time", time.time())
     elapsed_seconds = time.time() - start_time
     
+    # Get current knowledge database stats
+    db_stats = None
+    if job.get("processor"):
+        try:
+            db_stats = job["processor"].knowledge_db.get_database_stats()
+        except Exception as e:
+            logger.error(f"Error getting knowledge DB stats: {str(e)}")
+    
     return {
         "job_id": job_id,
         "status": job.get("status", "unknown"),
@@ -187,7 +211,13 @@ def get_job_status(job_id: str) -> Dict[str, Any]:
         "elapsed_seconds": elapsed_seconds,
         "report_path": job.get("report_path"),
         "stats": job.get("stats"),
-        "error": job.get("error")
+        "error": job.get("error"),
+        "knowledge_building": job.get("knowledge_building", False),
+        "knowledge_db": {
+            "current": db_stats,
+            "before": job.get("db_stats_before"),
+            "after": job.get("db_stats_after")
+        }
     }
 
 def stop_job(job_id: str) -> Dict[str, Any]:

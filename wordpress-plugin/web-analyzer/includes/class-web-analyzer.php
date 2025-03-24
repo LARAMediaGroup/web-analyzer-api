@@ -136,6 +136,8 @@ class Web_Analyzer {
         
         // Register AJAX handlers
         $this->loader->add_action('wp_ajax_web_analyzer_check_environment', $plugin_admin, 'check_environment');
+        $this->loader->add_action('wp_ajax_web_analyzer_test_api_connection', $plugin_admin, 'test_api_connection');
+        $this->loader->add_action('wp_ajax_web_analyzer_debug_log', $plugin_admin, 'log_debug_message');
     }
 
     /**

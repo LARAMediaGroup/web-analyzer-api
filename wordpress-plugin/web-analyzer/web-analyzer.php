@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name: Web Analyzer for Internal Linking
- * Plugin URI: https://thevou.com/web-analyzer
+ * Plugin URI: https://laramediagroup.com/web-analyzer
  * Description: Analyze content and suggest relevant internal links based on fashion topics
- * Version: 1.2.0
- * Author: The VOU
- * Author URI: https://thevou.com
+ * Version: 1.2.1
+ * Author: LARA Media Group
+ * Author URI: https://laramediagroup.com
  * Text Domain: web-analyzer
  * Domain Path: /languages
  * License: GPL v2 or later
@@ -17,7 +17,7 @@ if (!defined('WPINC')) {
 }
 
 // Define plugin constants
-define('WEB_ANALYZER_VERSION', '1.2.0');
+define('WEB_ANALYZER_VERSION', '1.2.1');
 define('WEB_ANALYZER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WEB_ANALYZER_PLUGIN_URL', plugin_dir_url(__FILE__));
 

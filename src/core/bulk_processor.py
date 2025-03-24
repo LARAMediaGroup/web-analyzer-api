@@ -3,6 +3,8 @@ Bulk Content Processor Module
 
 This module handles processing multiple pieces of content efficiently
 using parallelized processing and progress tracking.
+
+It also manages the knowledge database for internal linking.
 """
 
 import os
@@ -18,6 +20,7 @@ import traceback
 
 # Import analysis components
 from src.core.enhanced_analyzer import EnhancedContentAnalyzer
+from src.core.knowledge_db.knowledge_database import KnowledgeDatabase
 
 # Configure logging
 logger = logging.getLogger("web_analyzer.bulk_processor")
@@ -27,20 +30,26 @@ class BulkContentProcessor:
     Processor for handling multiple content items efficiently.
     """
     
-    def __init__(self, config_path: str = "config.json"):
+    def __init__(self, config_path: str = "config.json", site_id: Optional[str] = None):
         """
         Initialize the bulk content processor.
         
         Args:
             config_path: Path to the configuration file
+            site_id: Optional site identifier for multi-site support
         """
         self.config = self._load_config(config_path)
         self.analyzer = EnhancedContentAnalyzer(config_path)
+        
+        # Initialize knowledge database
+        self.site_id = site_id or "default"
+        self.knowledge_db = KnowledgeDatabase(config_path, self.site_id)
         
         # Processing parameters
         self.max_workers = self.config.get("max_workers", 4)
         self.progress_callback = None
         self.stop_signal = False
+        self.knowledge_building_mode = False
     
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """Load configuration from JSON file."""
@@ -87,7 +96,8 @@ class BulkContentProcessor:
         content_items: List[Dict[str, Any]],
         target_pages: List[Dict[str, str]],
         site_id: Optional[str] = None,
-        batch_size: Optional[int] = None
+        batch_size: Optional[int] = None,
+        knowledge_building_mode: bool = False
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """
         Process multiple content items asynchronously.
@@ -97,12 +107,21 @@ class BulkContentProcessor:
             target_pages: List of target pages for links
             site_id: Optional site identifier
             batch_size: Optional batch size (defaults to config value)
+            knowledge_building_mode: Whether to build knowledge database without suggestions
             
         Returns:
             Tuple of results list and processing stats
         """
         start_time = time.time()
         self.reset_stop_signal()
+        
+        # Set knowledge building mode
+        self.knowledge_building_mode = knowledge_building_mode
+        
+        # Check knowledge database status
+        db_stats = self.knowledge_db.get_database_stats()
+        db_content_count = db_stats.get("content_count", 0)
+        logger.info(f"Knowledge database has {db_content_count} entries")
         
         # Use configured batch size if not specified
         if batch_size is None:
@@ -117,13 +136,15 @@ class BulkContentProcessor:
             "successful_items": 0,
             "failed_items": 0,
             "total_suggestions": 0,
+            "knowledge_db_items": db_content_count,
+            "knowledge_building_mode": knowledge_building_mode,
             "start_time": datetime.now().isoformat(),
             "end_time": None,
             "duration_seconds": 0,
             "status": "in_progress"
         }
         
-        logger.info(f"Starting bulk processing of {total_items} items")
+        logger.info(f"Starting bulk processing of {total_items} items (knowledge building: {knowledge_building_mode})")
         
         # Process in batches
         for batch_start in range(0, total_items, batch_size):
@@ -300,15 +321,98 @@ class BulkContentProcessor:
             )
             processing_time = time.time() - start_time
             
+            # Add to knowledge database
+            if analysis_result.get("status", "") == "success":
+                analysis = analysis_result.get("analysis", {})
+                
+                # Prepare data for knowledge database
+                knowledge_data = {
+                    "id": item_id,
+                    "title": title,
+                    "url": url,
+                    "entities": {
+                        "clothing_items": analysis.get("fashion_entities", {}).get("clothing_items", []),
+                        "styles": analysis.get("fashion_entities", {}).get("styles", []),
+                        "body_shapes": analysis.get("fashion_entities", {}).get("body_shapes", []),
+                        "colours": analysis.get("fashion_entities", {}).get("colours", [])
+                    },
+                    "topics": {
+                        "primary": [analysis.get("primary_topic", "")],
+                        "sub": analysis.get("subtopics", [])
+                    }
+                }
+                
+                # Store in knowledge database
+                db_success = self.knowledge_db.add_content(knowledge_data)
+                
+                if db_success:
+                    logger.debug(f"Added content {item_id} to knowledge database")
+                else:
+                    logger.warning(f"Failed to add content {item_id} to knowledge database")
+            
+            # In knowledge building mode, don't generate suggestions
+            if self.knowledge_building_mode:
+                link_suggestions = []
+            else:
+                # Use knowledge database for finding related content
+                db_content_count = self.knowledge_db.get_content_count()
+                
+                # Only generate suggestions if we have enough content in database
+                min_db_size = self.config.get("initial_db_size", 100)
+                
+                if db_content_count >= min_db_size:
+                    # Extract entities and topics for finding related content
+                    knowledge_data = {
+                        "id": item_id,
+                        "entities": analysis_result.get("analysis", {}).get("fashion_entities", {}),
+                        "topics": {
+                            "primary": [analysis_result.get("analysis", {}).get("primary_topic", "")],
+                            "sub": analysis_result.get("analysis", {}).get("subtopics", [])
+                        }
+                    }
+                    
+                    # Find related content
+                    related_content = self.knowledge_db.find_related_content(
+                        knowledge_data,
+                        max_results=15,
+                        min_relevance=self.config.get("min_relevance", 0.3)
+                    )
+                    
+                    # Use the result from analyzer for now, but in future could
+                    # use the related content to generate better suggestions
+                    link_suggestions = analysis_result.get("link_suggestions", [])
+                    
+                    # Enhance suggestions with related content
+                    if related_content and len(related_content) > 0:
+                        # Merge with existing suggestions based on URL
+                        existing_urls = {s["target_url"] for s in link_suggestions}
+                        
+                        for related in related_content:
+                            if related["url"] not in existing_urls:
+                                # Generate anchor text for this related content
+                                # TODO: Implement better anchor text generation
+                                link_suggestions.append({
+                                    "anchor_text": related["title"],
+                                    "target_url": related["url"],
+                                    "context": "",  # Could extract from content
+                                    "confidence": related["relevance"],
+                                    "paragraph_index": 0,  # Needs specific paragraph
+                                    "relevance": related["relevance"]
+                                })
+                else:
+                    link_suggestions = []
+                    logger.info(f"Knowledge database has only {db_content_count} items, need {min_db_size} for suggestions")
+            
             # Prepare result
             result = {
                 "id": item_id,
                 "title": title,
                 "url": url,
                 "status": analysis_result.get("status", "success"),
-                "link_suggestions": analysis_result.get("link_suggestions", []),
+                "link_suggestions": link_suggestions,
                 "analysis": analysis_result.get("analysis", {}),
-                "processing_time": processing_time
+                "processing_time": processing_time,
+                "in_knowledge_db": True
             }
             
             if "error" in analysis_result:

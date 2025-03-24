@@ -77,12 +77,14 @@ class BulkProcessingRequest(BaseModel):
     content_items: List[ContentItem]
     site_id: Optional[str] = None
     batch_size: Optional[int] = None
+    knowledge_building: Optional[bool] = False
 
 class BulkProcessingResponse(BaseModel):
     job_id: str
     status: str
     total_items: int
     site_id: Optional[str] = None
+    knowledge_building: Optional[bool] = False
     error: Optional[str] = None
 
 class JobStatusResponse(BaseModel):
@@ -96,6 +98,8 @@ class JobStatusResponse(BaseModel):
     report_path: Optional[str] = None
     stats: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    knowledge_building: Optional[bool] = False
+    knowledge_db: Optional[Dict[str, Any]] = None
 
 # Health check endpoint
 @app.get("/health", tags=["Health"])
@@ -202,7 +206,8 @@ async def bulk_process(
         result = await start_bulk_processing(
             content_items=content_items,
             site_id=site_id,
-            batch_size=request.batch_size
+            batch_size=request.batch_size,
+            knowledge_building=request.knowledge_building
         )
         
         return result
@@ -289,6 +294,38 @@ async def list_all_jobs(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error listing jobs: {str(e)}"
+        )
+
+@app.get("/knowledge/stats", tags=["Knowledge Database"])
+async def get_knowledge_stats(
+    site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
+):
+    site_id = site_info["site_id"]
+    logger.info(f"Getting knowledge database stats for site: {site_id}")
+
+    try:
+        # Create a new processor to access the knowledge database
+        # We do this to avoid importing the KnowledgeDatabase directly
+        from src.core.bulk_processor import BulkContentProcessor
+        processor = BulkContentProcessor(site_id=site_id)
+        
+        # Get the stats
+        stats = processor.knowledge_db.get_database_stats()
+        
+        # Add a flag indicating if database is ready for analysis
+        min_db_size = processor.config.get("initial_db_size", 100)
+        stats["ready_for_analysis"] = stats.get("content_count", 0) >= min_db_size
+        stats["minimum_required"] = min_db_size
+        
+        return {
+            "site_id": site_id,
+            "knowledge_db": stats
+        }
+    except Exception as e:
+        logger.error(f"Error getting knowledge database stats for site {site_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error getting knowledge database stats: {str(e)}"
         )
 
 if __name__ == "__main__":

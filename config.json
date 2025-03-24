@@ -5,5 +5,10 @@
     "max_workers": 4,
     "debug": false,
     "allowed_domains": ["thevou.com"],
-    "service_name": "Web Analyzer API"
+    "service_name": "Web Analyzer API",
+    "knowledge_db_dir": "data/knowledge_db",
+    "max_entries": 1000,
+    "cleanup_threshold": 0.9,
+    "initial_db_size": 100,
+    "min_relevance": 0.4
 }

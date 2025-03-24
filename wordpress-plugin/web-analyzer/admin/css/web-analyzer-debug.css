@@ -1,0 +1,339 @@
+/**
+ * Web Analyzer Debug Panel Styling
+ */
+
+/* Debug Panel Container */
+.web-analyzer-debug-panel {
+    margin-top: 20px;
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    box-shadow: 0 1px 1px rgba(0,0,0,0.04);
+    position: relative;
+}
+
+/* Debug Panel Header */
+.debug-panel-header {
+    border-bottom: 1px solid #ccd0d4;
+    padding: 10px 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f8f9fa;
+}
+
+.debug-panel-header h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.debug-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Debug Panel Content */
+.debug-panel-content {
+    padding: 0;
+}
+
+/* Debug Tabs */
+.debug-tabs {
+    display: flex;
+    border-bottom: 1px solid #ccd0d4;
+    background: #f8f9fa;
+}
+
+.debug-tab-button {
+    padding: 10px 15px;
+    background: transparent;
+    border: none;
+    border-right: 1px solid #ccd0d4;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.2s;
+}
+
+.debug-tab-button:hover {
+    background: #f0f0f1;
+}
+
+.debug-tab-button.active {
+    background: #fff;
+    border-bottom: 2px solid #2271b1;
+    font-weight: 600;
+}
+
+/* Debug Tab Content */
+.debug-tab {
+    display: none;
+    padding: 15px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.debug-tab.active {
+    display: block;
+}
+
+/* Debug Log */
+.debug-log {
+    font-family: monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.log-entry {
+    margin-bottom: 2px;
+    padding: 2px 0;
+}
+
+.log-time {
+    color: #666;
+}
+
+.log-level {
+    font-weight: bold;
+    margin-right: 5px;
+}
+
+.log-entry.log-debug .log-level {
+    color: #666;
+}
+
+.log-entry.log-info .log-level {
+    color: #2271b1;
+}
+
+.log-entry.log-success .log-level {
+    color: #00a32a;
+}
+
+.log-entry.log-warning .log-level {
+    color: #dba617;
+}
+
+.log-entry.log-error .log-level {
+    color: #d63638;
+}
+
+/* Debug Requests/Responses */
+.debug-request, .debug-response, .debug-error {
+    margin-bottom: 15px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.request-header, .response-header, .error-header {
+    padding: 8px 12px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #ddd;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    font-size: 12px;
+}
+
+.request-method, .response-status {
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+
+.request-method {
+    background: #e9f0f8;
+    color: #2271b1;
+}
+
+.response-success .response-status {
+    background: #e9f8ef;
+    color: #00a32a;
+}
+
+.response-error .response-status,
+.debug-error .error-status {
+    background: #f8e9e9;
+    color: #d63638;
+}
+
+.request-url, .response-url {
+    flex: 1;
+    font-family: monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 50%;
+}
+
+.request-time, .response-time, .error-time {
+    color: #666;
+    font-size: 11px;
+}
+
+.response-duration {
+    background: #f0f0f1;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+.request-details, .response-details, .error-details {
+    padding: 10px;
+    background: #fff;
+}
+
+.request-details h4, .response-details h4, .error-details h4 {
+    margin: 0 0 5px 0;
+    font-size: 12px;
+    color: #1d2327;
+}
+
+.request-details pre, .response-details pre, .error-details pre {
+    margin: 0 0 15px 0;
+    padding: 8px;
+    background: #f8f9fa;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    overflow-x: auto;
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+/* Debug Status Bar */
+.debug-status-bar {
+    border-top: 1px solid #ccd0d4;
+    padding: 8px 15px;
+    display: flex;
+    justify-content: space-between;
+    background: #f8f9fa;
+    font-size: 12px;
+    color: #50575e;
+}
+
+/* Progress Indicator */
+.wa-progress-indicator {
+    margin: 15px 0;
+    padding: 15px;
+    background: #f8f9fa;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.wa-spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    margin-right: 10px;
+    border: 2px solid rgba(0, 0, 0, 0.1);
+    border-left-color: #2271b1;
+    border-radius: 50%;
+    animation: wa-spinner 1s linear infinite;
+}
+
+@keyframes wa-spinner {
+    to { transform: rotate(360deg); }
+}
+
+.wa-progress-message {
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
+.wa-progress-steps {
+    margin-top: 15px;
+    border-top: 1px solid #ddd;
+    padding-top: 10px;
+}
+
+.wa-progress-step {
+    margin-bottom: 5px;
+    font-size: 12px;
+}
+
+.step-name {
+    font-weight: 600;
+}
+
+/* System Diagnostics */
+.diagnostics-section {
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #ddd;
+}
+
+.diagnostics-section h4 {
+    margin: 0 0 10px 0;
+    font-size: 14px;
+    color: #1d2327;
+}
+
+.diagnostics-section ul {
+    margin: 0;
+    padding: 0 0 0 20px;
+}
+
+.diagnostics-section li {
+    margin-bottom: 5px;
+}
+
+.diagnostics-issues {
+    background: #fcf9e8;
+    padding: 15px;
+    border: 1px solid #dba617;
+    border-left-width: 4px;
+    border-radius: 3px;
+}
+
+.diagnostics-no-issues {
+    background: #edfaef;
+    padding: 15px;
+    border: 1px solid #00a32a;
+    border-left-width: 4px;
+    border-radius: 3px;
+}
+
+.diagnostics-running {
+    padding: 15px;
+    background: #f0f6fc;
+    border: 1px solid #2271b1;
+    border-left-width: 4px;
+    border-radius: 3px;
+    font-style: italic;
+}
+
+/* Responsive Styling */
+@media screen and (max-width: 782px) {
+    .debug-panel-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .debug-controls {
+        margin-top: 10px;
+        flex-wrap: wrap;
+    }
+    
+    .debug-tabs {
+        flex-wrap: wrap;
+    }
+    
+    .debug-tab-button {
+        flex-grow: 1;
+        text-align: center;
+        border-bottom: 1px solid #ccd0d4;
+    }
+    
+    .request-url, .response-url {
+        max-width: 100%;
+    }
+    
+    .request-header, .response-header, .error-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 5px;
+    }
+}

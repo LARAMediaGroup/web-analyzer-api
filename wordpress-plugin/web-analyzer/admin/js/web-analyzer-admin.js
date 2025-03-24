@@ -5,6 +5,51 @@
     'use strict';
 
     $(function() {
+        // Knowledge database status
+        function refreshKnowledgeStats() {
+            var $loading = $('#knowledge-db-loading');
+            var $status = $('#knowledge-db-status');
+            
+            $loading.show();
+            $status.hide();
+            
+            $.ajax({
+                url: webAnalyzerAdmin.apiUrl + '/knowledge/stats',
+                type: 'GET',
+                beforeSend: function(xhr) {
+                    xhr.setRequestHeader('X-WP-Nonce', webAnalyzerAdmin.apiNonce);
+                },
+                success: function(response) {
+                    if (response.success && response.knowledge_db) {
+                        var stats = response.knowledge_db;
+                        $('#knowledge-content-count').text(stats.content_count || '0');
+                        $('#knowledge-ready').text(stats.ready_for_analysis ? 'Yes' : 'No');
+                        $('#knowledge-minimum').text(stats.minimum_required || '100');
+                        
+                        // Update progress bar
+                        var progress = 0;
+                        if (stats.minimum_required > 0 && stats.content_count > 0) {
+                            progress = Math.min(100, Math.floor((stats.content_count / stats.minimum_required) * 100));
+                        }
+                        $('#knowledge-progress-bar').css('width', progress + '%');
+                        
+                        $loading.hide();
+                        $status.show();
+                    } else {
+                        $loading.text('Could not load knowledge database status. Please check API connection.');
+                    }
+                },
+                error: function(xhr, status, error) {
+                    $loading.text('Error: ' + error);
+                }
+            });
+        }
+        
+        // Call immediately on page load
+        refreshKnowledgeStats();
+        
+        // Refresh button
+        $('#web-analyzer-refresh-knowledge').on('click', refreshKnowledgeStats);
         // Test connection to API
         $('#web-analyzer-test-connection').on('click', function() {
             var $button = $(this);
@@ -246,6 +291,143 @@
         });
         
         // Server environment check
+        // Bulk processing start
+        $('#web-analyzer-start-bulk').on('click', function() {
+            var $button = $(this);
+            var $status = $('#web-analyzer-bulk-status');
+            
+            // Get form values
+            var postType = $('#web_analyzer_bulk_post_type').val();
+            var limit = $('#web_analyzer_bulk_limit').val();
+            var knowledgeMode = $('#web_analyzer_knowledge_mode').val();
+            
+            // Use knowledge building mode or suggestion mode
+            var knowledgeBuilding = (knowledgeMode === 'build');
+            
+            // Disable button during processing
+            $button.prop('disabled', true).text(webAnalyzerL10n.processing);
+            
+            // Show status area
+            $status.show();
+            $('#job-status-text').text('Starting...');
+            $('#job-mode-text').text(knowledgeBuilding ? 'Building Knowledge Database' : 'Generating Link Suggestions');
+            $('#job-progress').text('0%');
+            $('#progress-bar-inner').css('width', '0%');
+            $('#processed-count').text('0');
+            $('#total-count').text('0');
+            $('#time-elapsed').text('0s');
+            $('#view-report-link').hide();
+            
+            // Start job
+            $.ajax({
+                url: webAnalyzerAdmin.apiUrl + '/bulk/analyze',
+                type: 'POST',
+                beforeSend: function(xhr) {
+                    xhr.setRequestHeader('X-WP-Nonce', webAnalyzerAdmin.apiNonce);
+                },
+                data: JSON.stringify({
+                    post_type: postType,
+                    limit: limit,
+                    knowledge_building: knowledgeBuilding
+                }),
+                contentType: 'application/json',
+                dataType: 'json',
+                success: function(response) {
+                    if (response.success) {
+                        // Store job ID for status tracking
+                        var jobId = response.job.job_id;
+                        $('#total-count').text(response.post_count);
+                        
+                        // Set up interval to check job status
+                        var startTime = Date.now();
+                        var statusInterval = setInterval(function() {
+                            checkJobStatus(jobId, startTime, statusInterval);
+                        }, 2000);
+                    } else {
+                        $('#job-status-text').text('Error: ' + (response.message || 'Unknown error'));
+                        $button.prop('disabled', false).text(webAnalyzerL10n.startProcessing);
+                    }
+                },
+                error: function(xhr, status, error) {
+                    $('#job-status-text').text('Error: ' + error);
+                    $button.prop('disabled', false).text(webAnalyzerL10n.startProcessing);
+                }
+            });
+        });
+        
+        // Job status checking
+        function checkJobStatus(jobId, startTime, intervalId) {
+            $.ajax({
+                url: webAnalyzerAdmin.apiUrl + '/bulk/status/' + jobId,
+                type: 'GET',
+                beforeSend: function(xhr) {
+                    xhr.setRequestHeader('X-WP-Nonce', webAnalyzerAdmin.apiNonce);
+                },
+                success: function(response) {
+                    if (response.success) {
+                        var job = response.job;
+                        
+                        // Update status display
+                        $('#job-status-text').text(job.status.charAt(0).toUpperCase() + job.status.slice(1));
+                        $('#job-progress').text(job.progress + '%');
+                        $('#progress-bar-inner').css('width', job.progress + '%');
+                        $('#processed-count').text(job.processed_items);
+                        
+                        // Calculate elapsed time
+                        var elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+                        var minutes = Math.floor(elapsedSeconds / 60);
+                        var seconds = elapsedSeconds % 60;
+                        $('#time-elapsed').text(minutes + 'm ' + seconds + 's');
+                        
+                        // Check if job is completed
+                        if (job.status === 'completed' || job.status === 'error') {
+                            clearInterval(intervalId);
+                            $('#web-analyzer-start-bulk').prop('disabled', false).text(webAnalyzerL10n.startProcessing);
+                            
+                            // Show report link if available
+                            if (job.report_path) {
+                                $('#view-report-link').attr('href', job.report_path).show();
+                            }
+                            
+                            // Refresh knowledge database stats
+                            refreshKnowledgeStats();
+                        }
+                    } else {
+                        $('#job-status-text').text('Error: ' + (response.message || 'Failed to get status'));
+                    }
+                },
+                error: function(xhr, status, error) {
+                    $('#job-status-text').text('Error checking status: ' + error);
+                }
+            });
+        }
+        
+        // Stop job
+        $('#web-analyzer-stop-job').on('click', function() {
+            var jobId = $('#job-id').val();
+            if (!jobId) {
+                return;
+            }
+            
+            $(this).prop('disabled', true).text('Stopping...');
+            
+            $.ajax({
+                url: webAnalyzerAdmin.apiUrl + '/bulk/stop/' + jobId,
+                type: 'POST',
+                beforeSend: function(xhr) {
+                    xhr.setRequestHeader('X-WP-Nonce', webAnalyzerAdmin.apiNonce);
+                },
+                success: function(response) {
+                    $('#job-status-text').text('Stopping...');
+                    $('#web-analyzer-stop-job').prop('disabled', false).text('Stop Job');
+                },
+                error: function(xhr, status, error) {
+                    $('#job-status-text').text('Error stopping job: ' + error);
+                    $('#web-analyzer-stop-job').prop('disabled', false).text('Stop Job');
+                }
+            });
+        });
+        
         $('#web-analyzer-check-env').on('click', function() {
             var $button = $(this);
             var $debugResults = $('#web-analyzer-debug-results');

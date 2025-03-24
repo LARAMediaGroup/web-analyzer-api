@@ -174,14 +174,50 @@ if (!defined('WPINC')) {
                             </tr>
                             <tr>
                                 <th scope="row">
+                                    <label for="web_analyzer_knowledge_mode"><?php _e('Knowledge Database Mode', 'web-analyzer'); ?></label>
+                                </th>
+                                <td>
+                                    <select id="web_analyzer_knowledge_mode" name="web_analyzer_knowledge_mode">
+                                        <option value="suggest" <?php selected(get_option('web_analyzer_knowledge_mode', 'suggest'), 'suggest'); ?>>
+                                            <?php _e('Generate Link Suggestions', 'web-analyzer'); ?>
+                                        </option>
+                                        <option value="build" <?php selected(get_option('web_analyzer_knowledge_mode', 'suggest'), 'build'); ?>>
+                                            <?php _e('Build Knowledge Database', 'web-analyzer'); ?>
+                                        </option>
+                                    </select>
+                                    <p class="description">
+                                        <?php _e('Choose whether to build the knowledge database or generate link suggestions.', 'web-analyzer'); ?>
+                                    </p>
+                                    <div id="knowledge-db-info" style="margin-top: 10px; background: #f8f9fa; padding: 10px; border-left: 4px solid #2271b1;">
+                                        <h4 style="margin-top: 0;"><?php _e('Knowledge Database Status', 'web-analyzer'); ?></h4>
+                                        <div id="knowledge-db-loading"><?php _e('Loading...', 'web-analyzer'); ?></div>
+                                        <div id="knowledge-db-status" style="display: none;">
+                                            <p><strong><?php _e('Content Items:', 'web-analyzer'); ?></strong> <span id="knowledge-content-count">0</span></p>
+                                            <p><strong><?php _e('Ready for Analysis:', 'web-analyzer'); ?></strong> <span id="knowledge-ready">No</span></p>
+                                            <p><strong><?php _e('Minimum Required:', 'web-analyzer'); ?></strong> <span id="knowledge-minimum">100</span> <?php _e('items', 'web-analyzer'); ?></p>
+                                            <div class="progress-bar" style="background: #f0f0f0; height: 10px; width: 100%; border-radius: 3px; margin: 5px 0;">
+                                                <div id="knowledge-progress-bar" style="background: #2271b1; height: 100%; width: 0%; border-radius: 3px;"></div>
+                                            </div>
+                                            <p><em><?php _e('Note: You need to process at least the minimum required content items in "Build Knowledge Database" mode before suggestions will work.', 'web-analyzer'); ?></em></p>
+                                        </div>
+                                        <button type="button" id="web-analyzer-refresh-knowledge" class="button button-secondary" style="margin-top: 10px;">
+                                            <?php _e('Refresh Status', 'web-analyzer'); ?>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            
+                            <tr>
+                                <th scope="row">
                                     <?php _e('Start Bulk Analysis', 'web-analyzer'); ?>
                                 </th>
                                 <td>
                                     <button type="button" id="web-analyzer-start-bulk" class="button button-primary">
-                                        <?php _e('Start Analysis', 'web-analyzer'); ?>
+                                        <?php _e('Start Processing', 'web-analyzer'); ?>
                                     </button>
                                     <div id="web-analyzer-bulk-status" style="margin-top: 10px; display: none;">
                                         <p><strong><?php _e('Job Status:', 'web-analyzer'); ?></strong> <span id="job-status-text">-</span></p>
+                                        <p><strong><?php _e('Mode:', 'web-analyzer'); ?></strong> <span id="job-mode-text">-</span></p>
                                         <p><strong><?php _e('Progress:', 'web-analyzer'); ?></strong> <span id="job-progress">0%</span></p>
                                         <div class="progress-bar" style="background: #f0f0f0; height: 20px; width: 100%; border-radius: 3px; margin-top: 5px;">
                                             <div id="progress-bar-inner" style="background: #2271b1; height: 100%; width: 0%; border-radius: 3px;"></div>
@@ -212,6 +248,33 @@ if (!defined('WPINC')) {
                             <?php _e('Test Connection', 'web-analyzer'); ?>
                         </button>
                         <span id="web-analyzer-connection-status"></span>
+                    </div>
+                    
+                    <div class="web-analyzer-debug-section" style="margin-top: 15px; border-top: 1px solid #ddd; padding-top: 15px;">
+                        <h3><?php _e('Debug Information', 'web-analyzer'); ?></h3>
+                        <p><?php _e('This section helps diagnose connection issues.', 'web-analyzer'); ?></p>
+                        
+                        <div class="web-analyzer-debug-controls">
+                            <button type="button" id="web-analyzer-debug-test" class="button button-secondary">
+                                <?php _e('Run Detailed Test', 'web-analyzer'); ?>
+                            </button>
+                            <button type="button" id="web-analyzer-check-env" class="button button-secondary" style="margin-left: 5px;">
+                                <?php _e('Check Server Environment', 'web-analyzer'); ?>
+                            </button>
+                        </div>
+                        
+                        <div id="web-analyzer-debug-results" style="margin-top: 15px; display: none; background: #f8f8f8; padding: 10px; border: 1px solid #ddd; border-radius: 3px; white-space: pre-wrap; font-family: monospace; max-height: 300px; overflow-y: auto;">
+                        </div>
+                        
+                        <div class="web-analyzer-debug-steps" style="margin-top: 15px; display: none;">
+                            <h4><?php _e('Connection Steps', 'web-analyzer'); ?></h4>
+                            <ol id="web-analyzer-debug-steps-list">
+                                <li id="step-fetch" class="pending"><?php _e('Fetching API endpoint', 'web-analyzer'); ?></li>
+                                <li id="step-auth" class="pending"><?php _e('Testing authentication', 'web-analyzer'); ?></li>
+                                <li id="step-health" class="pending"><?php _e('Checking API health', 'web-analyzer'); ?></li>
+                                <li id="step-site" class="pending"><?php _e('Verifying site configuration', 'web-analyzer'); ?></li>
+                            </ol>
+                        </div>
                     </div>
                 </div>
                 
