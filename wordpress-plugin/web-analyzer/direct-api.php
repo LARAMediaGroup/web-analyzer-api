@@ -34,6 +34,11 @@ $operation = isset($_GET['op']) ? $_GET['op'] : '';
 // Process based on operation
 header('Content-Type: application/json');
 
+// Define API credentials
+$api_url = 'https://web-analyzer-api.onrender.com';
+$api_key = 'development_key_only_for_testing';
+$site_id = 'default';
+
 switch ($operation) {
     case 'get_posts':
         // Get posts for processing
@@ -69,10 +74,6 @@ switch ($operation) {
         
     case 'api_request':
         // Get API settings - hardcoded for TheVou
-        $api_url = 'https://web-analyzer-api.onrender.com';
-        $api_key = 'thevou_api_key_2025_03_24';
-        $site_id = 'thevou';
-        
         if (empty($api_url) || empty($api_key)) {
             echo json_encode(['success' => false, 'error' => 'API not configured']);
             exit;
