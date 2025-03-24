@@ -36,6 +36,10 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Create a new FastAPI app with the /api/v1 prefix
+api_app = FastAPI()
+app.mount("/api/v1", api_app)
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -104,10 +108,10 @@ class JobStatusResponse(BaseModel):
 # Health check endpoint
 @app.get("/health", tags=["Health"])
 async def health_check():
-    return {"status": "ok", "timestamp": datetime.now().isoformat()}
+    return {"status": "healthy"}
 
 # Content analysis endpoint with authentication and caching
-@app.post("/analyze/content", response_model=ContentAnalysisResponse, tags=["Analysis"])
+@api_app.post("/analyze/content", response_model=ContentAnalysisResponse, tags=["Analysis"])
 async def analyze_content(
     request: ContentAnalysisRequest,
     site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
@@ -148,8 +152,8 @@ async def analyze_content_with_cache(content: str, title: str, site_id: str, url
         url=url
     )
 
-# Enhanced analysis endpoint with authentication and caching
-@app.post("/analyze/enhanced", response_model=ContentAnalysisResponse, tags=["Analysis"])
+# Enhanced content analysis endpoint
+@api_app.post("/analyze/enhanced", response_model=ContentAnalysisResponse, tags=["Analysis"])
 async def analyze_content_enhanced_endpoint(
     request: ContentAnalysisRequest,
     site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
@@ -189,8 +193,8 @@ async def analyze_enhanced_with_cache(content: str, title: str, site_id: str, ur
         url=url
     )
 
-# Bulk processing endpoints
-@app.post("/bulk/process", response_model=BulkProcessingResponse, tags=["Bulk Processing"])
+# Bulk processing endpoint
+@api_app.post("/bulk/process", response_model=BulkProcessingResponse, tags=["Bulk Processing"])
 async def bulk_process(
     request: BulkProcessingRequest,
     site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
@@ -218,7 +222,8 @@ async def bulk_process(
             detail=f"Error starting bulk processing: {str(e)}"
         )
 
-@app.get("/bulk/status/{job_id}", response_model=JobStatusResponse, tags=["Bulk Processing"])
+# Job status endpoint
+@api_app.get("/bulk/status/{job_id}", response_model=JobStatusResponse, tags=["Bulk Processing"])
 async def job_status(
     job_id: str,
     site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
@@ -247,7 +252,8 @@ async def job_status(
             detail=f"Error getting job status: {str(e)}"
         )
 
-@app.post("/bulk/stop/{job_id}", tags=["Bulk Processing"])
+# Stop job endpoint
+@api_app.post("/bulk/stop/{job_id}", tags=["Bulk Processing"])
 async def stop_processing_job(
     job_id: str,
     site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
@@ -278,7 +284,8 @@ async def stop_processing_job(
             detail=f"Error stopping job: {str(e)}"
         )
 
-@app.get("/bulk/jobs", tags=["Bulk Processing"])
+# List jobs endpoint
+@api_app.get("/bulk/jobs", tags=["Bulk Processing"])
 async def list_all_jobs(
     site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
 ):
@@ -296,7 +303,8 @@ async def list_all_jobs(
             detail=f"Error listing jobs: {str(e)}"
         )
 
-@app.get("/knowledge/stats", tags=["Knowledge Database"])
+# Knowledge stats endpoint
+@api_app.get("/knowledge/stats", tags=["Knowledge Database"])
 async def get_knowledge_stats(
     site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
 ):
