@@ -43,7 +43,16 @@ app.mount("/api/v1", api_app)
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Restrict in production
+    allow_origins=["https://thevou.com", "https://www.thevou.com"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Also add CORS middleware to the API app
+api_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://thevou.com", "https://www.thevou.com"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
