@@ -3,7 +3,7 @@
  * Plugin Name: Web Analyzer for Internal Linking
  * Plugin URI: https://laramediagroup.com/web-analyzer
  * Description: Analyze content and suggest relevant internal links based on fashion topics
- * Version: 1.3.3
+ * Version: 1.3.4
  * Author: LARA Media Group
  * Author URI: https://laramediagroup.com
  * Text Domain: web-analyzer
@@ -17,7 +17,7 @@ if (!defined('WPINC')) {
 }
 
 // Define plugin constants
-define('WEB_ANALYZER_VERSION', '1.3.3');
+define('WEB_ANALYZER_VERSION', '1.3.4');
 define('WEB_ANALYZER_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WEB_ANALYZER_PLUGIN_URL', plugin_dir_url(__FILE__));
 
