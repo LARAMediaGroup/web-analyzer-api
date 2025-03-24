@@ -395,10 +395,10 @@ class Web_Analyzer_API {
      * @return   array|WP_Error
      */
     public function request_analysis($content, $title, $url = '', $use_enhanced = false) {
-        // Get API settings
-        $api_url = get_option('web_analyzer_api_url');
-        $api_key = get_option('web_analyzer_api_key');
-        $site_id = get_option('web_analyzer_site_id');
+        // Get API settings - hardcoded for TheVou
+        $api_url = 'https://web-analyzer-api.onrender.com';
+        $api_key = 'thevou_api_key_2025_03_24';
+        $site_id = 'thevou';
         
         if (empty($api_url) || empty($api_key)) {
             return new WP_Error('api_not_configured', 'API not configured. Please set the API URL and API Key in the plugin settings.');
@@ -469,10 +469,10 @@ class Web_Analyzer_API {
      * @return   array|WP_Error
      */
     public function request_bulk_processing($content_items, $knowledge_building = false) {
-        // Get API settings
-        $api_url = get_option('web_analyzer_api_url');
-        $api_key = get_option('web_analyzer_api_key');
-        $site_id = get_option('web_analyzer_site_id');
+        // Get API settings - hardcoded for TheVou
+        $api_url = 'https://web-analyzer-api.onrender.com';
+        $api_key = 'thevou_api_key_2025_03_24';
+        $site_id = 'thevou';
         
         if (empty($api_url) || empty($api_key)) {
             return new WP_Error('api_not_configured', 'API not configured. Please set the API URL and API Key in the plugin settings.');
@@ -540,9 +540,9 @@ class Web_Analyzer_API {
      * @return   array|WP_Error
      */
     public function request_job_status($job_id) {
-        // Get API settings
-        $api_url = get_option('web_analyzer_api_url');
-        $api_key = get_option('web_analyzer_api_key');
+        // Get API settings - hardcoded for TheVou
+        $api_url = 'https://web-analyzer-api.onrender.com';
+        $api_key = 'thevou_api_key_2025_03_24';
         
         if (empty($api_url) || empty($api_key) || empty($job_id)) {
             return new WP_Error('api_not_configured', 'API not configured or missing job ID.');
@@ -660,9 +660,9 @@ class Web_Analyzer_API {
      * @return   array|WP_Error
      */
     public function get_knowledge_db_stats() {
-        // Get API settings
-        $api_url = get_option('web_analyzer_api_url');
-        $api_key = get_option('web_analyzer_api_key');
+        // Get API settings - hardcoded for TheVou
+        $api_url = 'https://web-analyzer-api.onrender.com';
+        $api_key = 'thevou_api_key_2025_03_24';
         
         if (empty($api_url) || empty($api_key)) {
             return new WP_Error('api_not_configured', 'API not configured. Please set the API URL and API Key in the plugin settings.');

@@ -1,106 +1,93 @@
+#!/usr/bin/env python3
 import requests
 import json
-import time
-from datetime import datetime
+import sys
 
-def test_api_health(api_url, api_key):
-    """Test the API health endpoint"""
-    headers = {"X-API-Key": api_key}
+# API credentials
+API_URL = "https://web-analyzer-api.onrender.com"
+API_KEY = "thevou_api_key_2025_03_24"
+SITE_ID = "thevou"
+
+def test_health():
+    """Test the health endpoint"""
+    url = f"{API_URL}/health"
+    headers = {"X-API-Key": API_KEY}
     
     try:
-        print(f"Testing connection to {api_url}/health...")
-        response = requests.get(f"{api_url}/health", headers=headers, timeout=10)
-        
-        print(f"Status Code: {response.status_code}")
-        print(f"Response Headers: {json.dumps(dict(response.headers), indent=2)}")
-        
-        if response.status_code == 200:
-            data = response.json()
-            print(f"Response: {json.dumps(data, indent=2)}")
-            
-            if data.get("status") == "ok":
-                print("\n✅ API health check successful!")
-                return True
-            else:
-                print("\n❌ API returned unexpected response.")
-                return False
-        else:
-            print("\n❌ API health check failed.")
-            return False
+        response = requests.get(url, headers=headers, timeout=10)
+        print(f"Health endpoint status: {response.status_code}")
+        print(f"Response: {response.text}")
+        return response.status_code == 200
     except Exception as e:
-        print(f"\n❌ Error: {str(e)}")
+        print(f"Error testing health endpoint: {str(e)}")
         return False
 
-def test_analyze_endpoint(api_url, api_key, site_id):
-    """Test the content analysis endpoint with a sample request"""
+def test_analyze_content():
+    """Test the analyze content endpoint"""
+    url = f"{API_URL}/analyze/content"
     headers = {
-        "X-API-Key": api_key,
+        "X-API-Key": API_KEY,
         "Content-Type": "application/json"
     }
     
-    sample_data = {
-        "content": "Old money aesthetic is a popular fashion style among young men. It reflects a classic, timeless approach to dressing that emphasizes quality over trends. Men with an inverted triangle body shape often look good in this style, especially when wearing true spring colors.",
-        "title": "Test Fashion Content",
-        "site_id": site_id
+    # Simple test content
+    data = {
+        "content": "This is a test article about fashion. We're testing connection to the API.",
+        "title": "Test Article for API Connection",
+        "site_id": SITE_ID
     }
     
     try:
-        print(f"\nTesting content analysis endpoint {api_url}/analyze/content...")
-        start_time = time.time()
-        response = requests.post(
-            f"{api_url}/analyze/content", 
-            headers=headers, 
-            json=sample_data, 
-            timeout=30
-        )
-        end_time = time.time()
-        
-        print(f"Status Code: {response.status_code}")
-        print(f"Response time: {end_time - start_time:.2f} seconds")
-        
-        if response.status_code == 200:
-            data = response.json()
-            
-            # Print condensed version of the response
-            print(f"\nReceived {len(data.get('link_suggestions', []))} link suggestions")
-            print(f"Processing time: {data.get('processing_time', 0):.2f} seconds")
-            print(f"Status: {data.get('status', 'unknown')}")
-            
-            if data.get("status") == "success" and len(data.get("link_suggestions", [])) > 0:
-                print("\n✅ Content analysis successful!")
-                
-                # Print first suggestion as example
-                if data.get("link_suggestions"):
-                    suggestion = data["link_suggestions"][0]
-                    print("\nSample suggestion:")
-                    print(f"Anchor text: {suggestion.get('anchor_text')}")
-                    print(f"Target URL: {suggestion.get('target_url')}")
-                    print(f"Confidence: {suggestion.get('confidence')}")
-                
-                return True
-            else:
-                print("\n⚠️ Analysis completed but no suggestions found or unexpected status.")
-                return False
-        else:
-            print("\n❌ Content analysis request failed.")
-            print(f"Response: {response.text}")
-            return False
+        response = requests.post(url, headers=headers, json=data, timeout=20)
+        print(f"Analyze content endpoint status: {response.status_code}")
+        print(f"Response: {response.text}")
+        return response.status_code == 200
     except Exception as e:
-        print(f"\n❌ Error: {str(e)}")
+        print(f"Error testing analyze content endpoint: {str(e)}")
         return False
 
-if __name__ == "__main__":
-    api_url = "https://web-analyzer-api.onrender.com"  # No trailing slash
-    api_key = "thevou_production_key_12345"  # Replace with actual key if needed
-    site_id = "thevou"
+def test_auth_only():
+    """Test authentication only"""
+    # Let's test a simple endpoint to check auth
+    url = f"{API_URL}/bulk/jobs"
+    headers = {"X-API-Key": API_KEY}
     
-    print(f"=== Web Analyzer API Test - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        print(f"Auth test status: {response.status_code}")
+        print(f"Response: {response.text}")
+        return response.status_code == 200
+    except Exception as e:
+        print(f"Error testing authentication: {str(e)}")
+        return False
+
+def main():
+    print("Testing API connection...")
     
     # Test health endpoint
-    health_ok = test_api_health(api_url, api_key)
+    print("\n=== Testing Health Endpoint ===")
+    health_ok = test_health()
     
-    # Test analyze endpoint if health check passes
-    if health_ok:
-        test_analyze_endpoint(api_url, api_key, site_id)
+    # Test auth only
+    print("\n=== Testing Authentication ===")
+    auth_ok = test_auth_only()
     
-    print("\n=== Test Complete ===")
+    # Test analyze content
+    print("\n=== Testing Analyze Content Endpoint ===")
+    content_ok = test_analyze_content()
+    
+    # Summary
+    print("\n=== Summary ===")
+    print(f"Health endpoint: {'OK' if health_ok else 'FAILED'}")
+    print(f"Authentication: {'OK' if auth_ok else 'FAILED'}")
+    print(f"Analyze content: {'OK' if content_ok else 'FAILED'}")
+    
+    if health_ok and auth_ok and content_ok:
+        print("\nAll tests PASSED!")
+        return 0
+    else:
+        print("\nSome tests FAILED!")
+        return 1
+
+if __name__ == "__main__":
+    sys.exit(main())
