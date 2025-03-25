@@ -15,6 +15,9 @@ services:
       - type: rewrite
         source: /health
         destination: /api/v1/health
+      - type: rewrite
+        source: /*
+        destination: /api/v1/$1
     envVars:
       - key: SECRET_KEY
         generateValue: true
