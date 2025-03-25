@@ -33,25 +33,20 @@ logger = logging.getLogger("web_analyzer_api")
 app = FastAPI(
     title="Web Analyzer API",
     description="API for analyzing web content and generating internal links",
-    version="1.0.0",
-    root_path="/api/v1"  # Add root path
+    version="1.0.0"
 )
 
-# Create a new FastAPI app with the /api/v1 prefix
-api_app = FastAPI()
-app.mount("/api/v1", api_app)
+# Download required NLTK data on startup
+@app.on_event("startup")
+async def download_nltk_data():
+    import nltk
+    nltk.download('punkt')
+    nltk.download('averaged_perceptron_tagger')
+    nltk.download('wordnet')
+    nltk.download('stopwords')
 
 # Add CORS middleware
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://thevou.com", "https://www.thevou.com"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Also add CORS middleware to the API app
-api_app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://thevou.com", "https://www.thevou.com"],
     allow_credentials=True,
@@ -115,14 +110,14 @@ class JobStatusResponse(BaseModel):
     knowledge_building: Optional[bool] = False
     knowledge_db: Optional[Dict[str, Any]] = None
 
-# Health check endpoint
+# Health check endpoint at root level
 @app.get("/health", tags=["Health"])
 async def health_check():
     logger.info("Health check endpoint called")
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 # Content analysis endpoint with authentication and caching
-@app.post("/analyze/content", response_model=ContentAnalysisResponse, tags=["Analysis"])
+@app.post("/api/v1/analyze/content", response_model=ContentAnalysisResponse, tags=["Analysis"])
 async def analyze_content(
     request: ContentAnalysisRequest,
     site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
@@ -164,7 +159,7 @@ async def analyze_content_with_cache(content: str, title: str, site_id: str, url
     )
 
 # Enhanced content analysis endpoint
-@api_app.post("/analyze/enhanced", response_model=ContentAnalysisResponse, tags=["Analysis"])
+@app.post("/api/v1/analyze/enhanced", response_model=ContentAnalysisResponse, tags=["Analysis"])
 async def analyze_content_enhanced_endpoint(
     request: ContentAnalysisRequest,
     site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
@@ -205,7 +200,7 @@ async def analyze_enhanced_with_cache(content: str, title: str, site_id: str, ur
     )
 
 # Bulk processing endpoint
-@api_app.post("/bulk/process", response_model=BulkProcessingResponse, tags=["Bulk Processing"])
+@app.post("/api/v1/bulk/process", response_model=BulkProcessingResponse, tags=["Bulk Processing"])
 async def bulk_process(
     request: BulkProcessingRequest,
     site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
@@ -234,7 +229,7 @@ async def bulk_process(
         )
 
 # Job status endpoint
-@api_app.get("/bulk/status/{job_id}", response_model=JobStatusResponse, tags=["Bulk Processing"])
+@app.get("/api/v1/bulk/status/{job_id}", response_model=JobStatusResponse, tags=["Bulk Processing"])
 async def job_status(
     job_id: str,
     site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
@@ -264,7 +259,7 @@ async def job_status(
         )
 
 # Stop job endpoint
-@api_app.post("/bulk/stop/{job_id}", tags=["Bulk Processing"])
+@app.post("/api/v1/bulk/stop/{job_id}", tags=["Bulk Processing"])
 async def stop_processing_job(
     job_id: str,
     site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
@@ -296,7 +291,7 @@ async def stop_processing_job(
         )
 
 # List jobs endpoint
-@api_app.get("/bulk/jobs", tags=["Bulk Processing"])
+@app.get("/api/v1/bulk/jobs", tags=["Bulk Processing"])
 async def list_all_jobs(
     site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
 ):
@@ -315,7 +310,7 @@ async def list_all_jobs(
         )
 
 # Knowledge stats endpoint
-@api_app.get("/knowledge/stats", tags=["Knowledge Database"])
+@app.get("/api/v1/knowledge/stats", tags=["Knowledge Database"])
 async def get_knowledge_stats(
     site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
 ):
