@@ -12,7 +12,7 @@ This module analyzes content to extract fashion-specific entities like:
 
 import re
 import logging
-from typing import List, Dict, Any, Set, Tuple
+from typing import List, Dict, Any, Set, Tuple, Optional
 import nltk
 from nltk.tokenize import word_tokenize
 from nltk.tag import pos_tag
@@ -457,3 +457,94 @@ class FashionEntityAnalyzer:
         themes = [entity[0] for entity in all_entities[:5]]
         
         return themes
+    
+    def _analyze_fashion_entities(self, text: str) -> Dict[str, List[str]]:
+        """Analyze fashion entities with improved context handling."""
+        # Initialize results
+        results = {
+            "clothing_items": [],
+            "brands": [],
+            "styles": [],
+            "materials": [],
+            "body_shapes": [],
+            "colours": [],
+            "seasonal": []
+        }
+        
+        # Find compound terms and their relationships
+        compound_patterns = {
+            "clothing_items": [
+                r'\b(?:navy|khaki|oxford)\s+(?:blazer|trousers|shirt|suit)\b',
+                r'\b(?:penny|cable-knit)\s+(?:loafers|sweaters)\b',
+                r'\b(?:well-tailored|double-breasted)\s+(?:pieces|suit)\b'
+            ],
+            "styles": [
+                r'\b(?:old money|ivy league|prep school)\s+(?:fashion|style)\b',
+                r'\b(?:timeless|classic|luxury|understated)\s+(?:elegance|style|fashion)\b'
+            ],
+            "colours": [
+                r'\b(?:navy|khaki)\s+(?:blazer|trousers|suit)\b'
+            ]
+        }
+        
+        # Extract compound terms
+        for category, patterns in compound_patterns.items():
+            for pattern in patterns:
+                matches = re.finditer(pattern, text, re.IGNORECASE)
+                for match in matches:
+                    term = match.group()
+                    if category == "colours":
+                        # For colors, extract just the color name
+                        color = term.split()[0]
+                        if color not in results["colours"]:
+                            results["colours"].append(color)
+                    else:
+                        # For other categories, add the full compound term
+                        if term not in results[category]:
+                            results[category].append(term)
+        
+        # Look for context around each compound term
+        for category, terms in results.items():
+            if category in ["clothing_items", "styles"]:
+                for term in terms:
+                    context = self._get_context_around_term(text, term)
+                    if context:
+                        # Add any additional attributes found in context
+                        self._extract_attributes_from_context(context, results)
+        
+        return results
+    
+    def _get_context_around_term(self, text: str, term: str, window: int = 5) -> Optional[str]:
+        """Get context around a specific term."""
+        words = text.split()
+        try:
+            idx = words.index(term.split()[0])
+            start = max(0, idx - window)
+            end = min(len(words), idx + len(term.split()) + window)
+            return " ".join(words[start:end])
+        except ValueError:
+            return None
+    
+    def _extract_attributes_from_context(self, context: str, results: Dict[str, List[str]]) -> None:
+        """Extract additional attributes from context around a term."""
+        # Look for material attributes
+        material_patterns = [
+            r'\b(?:cable-knit|wool|cotton|silk|linen)\b'
+        ]
+        for pattern in material_patterns:
+            matches = re.finditer(pattern, context, re.IGNORECASE)
+            for match in matches:
+                material = match.group()
+                if material not in results["materials"]:
+                    results["materials"].append(material)
+        
+        # Look for quality attributes
+        quality_patterns = [
+            r'\b(?:well-tailored|quality|luxury|timeless)\b'
+        ]
+        for pattern in quality_patterns:
+            matches = re.finditer(pattern, context, re.IGNORECASE)
+            for match in matches:
+                quality = match.group()
+                if quality not in results["materials"]:  # Store quality attributes in materials for now
+                    results["materials"].append(quality)

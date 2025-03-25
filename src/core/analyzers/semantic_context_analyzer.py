@@ -10,7 +10,7 @@ This module analyzes the semantic context of content to understand:
 
 import re
 import logging
-from typing import List, Dict, Any, Tuple, Set
+from typing import List, Dict, Any, Tuple, Set, Optional
 import nltk
 from nltk.tokenize import sent_tokenize, word_tokenize
 from nltk.corpus import stopwords
@@ -103,7 +103,7 @@ class SemanticContextAnalyzer:
         preprocessed_paragraphs = [self._preprocess_text(p) for p in paragraphs]
         
         # Extract topics
-        primary_topic, subtopics = self._extract_topics(preprocessed_content, title)
+        primary_topic, subtopics = self._extract_topics(content, title)
         
         # Analyze paragraph structure and relationships
         paragraph_topics = self._analyze_paragraph_topics(preprocessed_paragraphs)
@@ -164,75 +164,90 @@ class SemanticContextAnalyzer:
         
         return paragraphs
     
-    def _extract_topics(
-        self, 
-        preprocessed_text: List[str], 
-        title: str = ""
-    ) -> Tuple[str, List[str]]:
-        """
-        Extract primary topic and subtopics from preprocessed text.
+    def _extract_topics(self, text: str, title: str) -> Dict[str, Any]:
+        """Extract primary topic and subtopics with improved compound term handling."""
+        # First, look for compound terms in title
+        title_compounds = self._find_compound_terms(title)
         
-        Args:
-            preprocessed_text: List of preprocessed tokens
-            title: Optional title to aid topic extraction
-            
-        Returns:
-            Tuple of primary topic and list of subtopics
-        """
-        # Get word frequencies
-        word_freq = Counter(preprocessed_text)
+        # Then analyze content for compound terms and their relationships
+        content_compounds = self._find_compound_terms(text)
         
-        # Extract most common words as topic candidates
-        most_common = word_freq.most_common(20)
+        # Combine and prioritize compound terms
+        all_compounds = set(title_compounds + content_compounds)
         
-        # If title is provided, use it to identify the primary topic
+        # Extract primary topic (prefer title compounds if available)
         primary_topic = None
-        if title:
-            # Preprocess title
-            title_tokens = self._preprocess_text(title)
-            
-            # Look for compound terms in the title
-            title_compounds = []
-            for i in range(len(title_tokens) - 1):
-                compound = f"{title_tokens[i]} {title_tokens[i+1]}"
-                if compound in " ".join(preprocessed_text):
-                    title_compounds.append(compound)
-            
-            if title_compounds:
-                # Use the most frequent compound term
-                title_compounds.sort(key=lambda w: word_freq.get(w, 0), reverse=True)
-                primary_topic = title_compounds[0]
-            else:
-                # Fall back to single words from title
-                title_words_in_content = [w for w in title_tokens if w in word_freq]
-                if title_words_in_content:
-                    title_words_in_content.sort(key=lambda w: word_freq[w], reverse=True)
-                    primary_topic = title_words_in_content[0]
+        if title_compounds:
+            primary_topic = title_compounds[0]
+        elif content_compounds:
+            primary_topic = content_compounds[0]
         
-        # If no primary topic from title, look for compound terms in content
-        if not primary_topic:
-            content_compounds = []
-            for i in range(len(preprocessed_text) - 1):
-                compound = f"{preprocessed_text[i]} {preprocessed_text[i+1]}"
-                if compound in self.style_categories or compound in self.clothing_items:
-                    content_compounds.append(compound)
-            
-            if content_compounds:
-                # Use the most frequent compound term
-                content_compounds.sort(key=lambda w: word_freq.get(w, 0), reverse=True)
-                primary_topic = content_compounds[0]
-            elif most_common:
-                primary_topic = most_common[0][0]
-        
-        # Extract subtopics (excluding primary topic and its components)
+        # Extract subtopics, excluding components of the primary topic
         subtopics = []
-        primary_components = primary_topic.split() if primary_topic else []
+        if primary_topic:
+            primary_components = set(primary_topic.lower().split())
+            for compound in all_compounds:
+                if compound != primary_topic:
+                    # Only add if it's not a component of the primary topic
+                    compound_components = set(compound.lower().split())
+                    if not compound_components.issubset(primary_components):
+                        subtopics.append(compound)
         
-        for word, _ in most_common:
-            if word != primary_topic and word not in primary_components:
-                subtopics.append(word)
+        return {
+            "primary_topic": primary_topic,
+            "subtopics": subtopics
+        }
+    
+    def _find_compound_terms(self, text: str) -> List[str]:
+        """Find meaningful compound terms in text."""
+        # Common fashion-specific compound patterns
+        patterns = [
+            r'\b(?:timeless|classic|luxury|understated|quality)\s+(?:elegance|style|fashion|tailoring|pieces)\b',
+            r'\b(?:navy|khaki|oxford)\s+(?:blazer|trousers|shirt|suit)\b',
+            r'\b(?:penny|cable-knit)\s+(?:loafers|sweaters)\b',
+            r'\b(?:old money|ivy league|prep school)\s+(?:fashion|style)\b',
+            r'\b(?:well-tailored|double-breasted)\s+(?:pieces|suit)\b'
+        ]
         
-        return primary_topic, subtopics[:5]
+        compounds = []
+        for pattern in patterns:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                compounds.append(match.group())
+        
+        return compounds
+
+    def _analyze_paragraph(self, paragraph: str) -> Dict[str, Any]:
+        """Analyze a single paragraph with improved context handling."""
+        # Find compound terms in the paragraph
+        compounds = self._find_compound_terms(paragraph)
+        
+        # Extract fashion-specific concepts
+        concepts = []
+        for compound in compounds:
+            # Look for related concepts around the compound
+            context = self._get_context_around_term(paragraph, compound)
+            if context:
+                concepts.append({
+                    "term": compound,
+                    "context": context
+                })
+        
+        return {
+            "compounds": compounds,
+            "concepts": concepts
+        }
+    
+    def _get_context_around_term(self, text: str, term: str, window: int = 5) -> Optional[str]:
+        """Get context around a specific term."""
+        words = text.split()
+        try:
+            idx = words.index(term.split()[0])
+            start = max(0, idx - window)
+            end = min(len(words), idx + len(term.split()) + window)
+            return " ".join(words[start:end])
+        except ValueError:
+            return None
     
     def _analyze_paragraph_topics(self, preprocessed_paragraphs: List[List[str]]) -> List[Dict[str, Any]]:
         """
