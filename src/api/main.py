@@ -115,9 +115,10 @@ class JobStatusResponse(BaseModel):
     knowledge_db: Optional[Dict[str, Any]] = None
 
 # Health check endpoint
-@app.get("/health", tags=["Health"])
+@api_app.get("/health", tags=["Health"])
 async def health_check():
-    return {"status": "healthy"}
+    logger.info("Health check endpoint called")
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 # Content analysis endpoint with authentication and caching
 @api_app.post("/analyze/content", response_model=ContentAnalysisResponse, tags=["Analysis"])

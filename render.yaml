@@ -7,19 +7,21 @@ services:
     plan: starter
     branch: main
     numInstances: 1
-    healthCheckPath: /health
+    healthCheckPath: /api/v1/health
     routes:
       - type: rewrite
         source: /api/v1/*
         destination: /api/v1/$1
       - type: rewrite
         source: /health
-        destination: /health
+        destination: /api/v1/health
     envVars:
       - key: SECRET_KEY
         generateValue: true
       - key: DEBUG
-        value: False
+        value: True
+      - key: LOG_LEVEL
+        value: DEBUG
       - key: MAX_WORKERS
         value: 4
       - key: NLTK_DATA
