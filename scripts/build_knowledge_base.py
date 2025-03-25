@@ -26,26 +26,51 @@ logger = logging.getLogger(__name__)
 
 class KnowledgeBaseBuilder:
     def __init__(self, api_url: str, api_key: str):
-        self.api_url = api_url
+        self.api_url = api_url.rstrip('/')
         self.api_key = api_key
         self.headers = {
             'Content-Type': 'application/json',
             'X-API-Key': api_key
         }
+        
+        # Validate API configuration
+        if not self.api_url or not self.api_key:
+            raise ValueError("API URL and API key are required")
+        
+        # Test API connection
+        self._test_api_connection()
+    
+    def _test_api_connection(self) -> None:
+        """Test the API connection before starting."""
+        try:
+            response = requests.get(
+                f"{self.api_url}/health",
+                headers=self.headers,
+                timeout=10
+            )
+            
+            if response.status_code != 200:
+                raise ConnectionError(f"API health check failed: {response.text}")
+            
+            logger.info("API connection test successful")
+            
+        except requests.exceptions.RequestException as e:
+            raise ConnectionError(f"Failed to connect to API: {str(e)}")
     
     def fetch_articles(self, batch_size: int = 5) -> List[Dict[str, Any]]:
         """Fetch articles from thevou.com/blog/ in batches."""
         try:
             # TODO: Implement actual article fetching from thevou.com/blog/
             # For now, return dummy data
-            return [
-                {
+            articles = []
+            for i in range(batch_size):
+                articles.append({
                     'title': f'Test Article {i}',
                     'content': f'Test content for article {i}',
-                    'url': f'https://thevou.com/blog/test-article-{i}'
-                }
-                for i in range(batch_size)
-            ]
+                    'url': f'https://thevou.com/blog/test-article-{i}',
+                    'site_id': 'thevou'  # Add site_id to match plugin configuration
+                })
+            return articles
         except Exception as e:
             logger.error(f"Error fetching articles: {str(e)}")
             return []
@@ -59,20 +84,31 @@ class KnowledgeBaseBuilder:
                 json={
                     'content_items': articles,
                     'knowledge_building': True,
-                    'batch_size': len(articles)
+                    'batch_size': len(articles),
+                    'site_id': 'thevou'  # Add site_id to match plugin configuration
                 },
                 timeout=60
             )
             
             if response.status_code != 200:
-                logger.error(f"API error: {response.text}")
-                return {'success': False, 'message': 'API error'}
+                error_msg = f"API error: {response.text}"
+                logger.error(error_msg)
+                return {'success': False, 'message': error_msg}
             
             return response.json()
             
+        except requests.exceptions.Timeout:
+            error_msg = "API request timed out"
+            logger.error(error_msg)
+            return {'success': False, 'message': error_msg}
+        except requests.exceptions.RequestException as e:
+            error_msg = f"API request failed: {str(e)}"
+            logger.error(error_msg)
+            return {'success': False, 'message': error_msg}
         except Exception as e:
-            logger.error(f"Error processing batch: {str(e)}")
-            return {'success': False, 'message': str(e)}
+            error_msg = f"Unexpected error: {str(e)}"
+            logger.error(error_msg)
+            return {'success': False, 'message': error_msg}
     
     def check_job_status(self, job_id: str) -> Dict[str, Any]:
         """Check the status of a processing job."""

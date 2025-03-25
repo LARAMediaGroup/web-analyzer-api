@@ -318,34 +318,54 @@ class Web_Analyzer_API {
      * @return   WP_REST_Response
      */
     public function get_job_status($request) {
-        $job_id = $request->get_param('job_id');
-        
-        if (!$job_id) {
-            // Try to get the last job ID
-            $job_id = get_option('web_analyzer_last_job_id');
+        try {
+            $job_id = $request->get_param('job_id');
+            if (!$job_id) {
+                $job_id = get_option('web_analyzer_current_job_id');
+            }
             
             if (!$job_id) {
                 return new WP_REST_Response(array(
                     'success' => false,
-                    'message' => 'No job ID specified and no recent job found'
-                ), 400);
+                    'message' => 'No active job found'
+                ), 404);
             }
-        }
-        
-        // Get job status
-        $result = $this->request_job_status($job_id);
-        
-        if (is_wp_error($result)) {
+            
+            // Get job status from API
+            $response = wp_remote_get(
+                $this->get_api_url() . '/bulk/status/' . $job_id,
+                array(
+                    'headers' => array(
+                        'X-API-Key' => $this->get_api_key()
+                    ),
+                    'timeout' => 30
+                )
+            );
+            
+            if (is_wp_error($response)) {
+                throw new Exception($response->get_error_message());
+            }
+            
+            $body = json_decode(wp_remote_retrieve_body($response), true);
+            
+            if (!$body || !isset($body['success'])) {
+                throw new Exception('Invalid response from API');
+            }
+            
+            // If job is complete, update knowledge base stats
+            if ($body['success'] && isset($body['status']) && $body['status'] === 'completed') {
+                $this->update_knowledge_base_stats();
+            }
+            
+            return new WP_REST_Response($body, 200);
+            
+        } catch (Exception $e) {
+            $this->log_debug_message('Error getting job status: ' . $e->getMessage());
             return new WP_REST_Response(array(
                 'success' => false,
-                'message' => $result->get_error_message()
+                'message' => $e->getMessage()
             ), 500);
         }
-        
-        return new WP_REST_Response(array(
-            'success' => true,
-            'job' => $result
-        ), 200);
     }
     
     /**
@@ -395,69 +415,71 @@ class Web_Analyzer_API {
      * @return   array|WP_Error
      */
     public function request_analysis($content, $title, $url = '', $use_enhanced = false) {
-        // Using hardcoded credentials for TheVou
-        $api_url = 'https://web-analyzer-api.onrender.com';
-        $api_key = 'development_key_only_for_testing';
-        $site_id = 'default';
-        
-        if (empty($api_url) || empty($api_key)) {
-            return new WP_Error('api_not_configured', 'API not configured. Please set the API URL and API Key in the plugin settings.');
-        }
-        
-        // Prepare the request
-        $endpoint = $use_enhanced ? 'analyze/enhanced' : 'analyze/content';
-        $request_url = trailingslashit($api_url) . $endpoint;
-        
-        $args = array(
-            'method' => 'POST',
-            'timeout' => 45,
-            'redirection' => 5,
-            'httpversion' => '1.1',
-            'headers' => array(
-                'Content-Type' => 'application/json',
-                'X-API-Key' => $api_key
-            ),
-            'body' => json_encode(array(
-                'content' => $content,
-                'title' => $title,
-                'url' => $url,
-                'site_id' => $site_id
-            )),
-        );
-        
-        // Make the request
-        $response = wp_remote_post($request_url, $args);
-        
-        // Check for errors
-        if (is_wp_error($response)) {
-            return $response;
-        }
-        
-        // Check response code
-        $response_code = wp_remote_retrieve_response_code($response);
-        if ($response_code != 200) {
-            $body = wp_remote_retrieve_body($response);
-            $error_message = 'API Error';
+        try {
+            // Get API configuration
+            $api_url = $this->get_api_url();
+            $api_key = $this->get_api_key();
+            $site_id = $this->get_site_id();
             
-            if (!empty($body)) {
-                $body_json = json_decode($body, true);
-                if (isset($body_json['detail'])) {
-                    $error_message = $body_json['detail'];
-                }
+            // Prepare the request
+            $endpoint = $use_enhanced ? 'analyze/enhanced' : 'analyze/content';
+            $request_url = $api_url . $endpoint;
+            
+            $args = array(
+                'method' => 'POST',
+                'timeout' => 45,
+                'redirection' => 5,
+                'httpversion' => '1.1',
+                'headers' => array(
+                    'Content-Type' => 'application/json',
+                    'X-API-Key' => $api_key
+                ),
+                'body' => json_encode(array(
+                    'content' => $content,
+                    'title' => $title,
+                    'url' => $url,
+                    'site_id' => $site_id
+                )),
+            );
+            
+            // Make the request
+            $response = wp_remote_post($request_url, $args);
+            
+            // Check for errors
+            if (is_wp_error($response)) {
+                throw new Exception($response->get_error_message());
             }
             
-            return new WP_Error('api_error', $error_message . ' (Code: ' . $response_code . ')');
+            // Check response code
+            $response_code = wp_remote_retrieve_response_code($response);
+            if ($response_code != 200) {
+                $body = wp_remote_retrieve_body($response);
+                $error_message = 'API Error';
+                
+                if (!empty($body)) {
+                    $body_json = json_decode($body, true);
+                    if (isset($body_json['detail'])) {
+                        $error_message = $body_json['detail'];
+                    }
+                }
+                
+                throw new Exception($error_message . ' (Code: ' . $response_code . ')');
+            }
+            
+            // Parse response
+            $body = wp_remote_retrieve_body($response);
+            $response_data = json_decode($body, true);
+            
+            if (!isset($response_data['link_suggestions'])) {
+                throw new Exception('Invalid API response format');
+            }
+            
+            return $response_data['link_suggestions'];
+            
+        } catch (Exception $e) {
+            $this->log_debug_message('Error in request_analysis: ' . $e->getMessage());
+            return new WP_Error('api_error', $e->getMessage());
         }
-        
-        // Parse response
-        $body = wp_remote_retrieve_body($response);
-        $response_data = json_decode($body, true);
-        
-        if (!isset($response_data['link_suggestions'])) {
-            return new WP_Error('api_invalid_response', 'Invalid API response format');
-        }
-        
-        return $response_data['link_suggestions'];
     }
     
     /**
@@ -469,131 +491,100 @@ class Web_Analyzer_API {
      * @return   array|WP_Error
      */
     public function request_bulk_processing($content_items, $knowledge_building = false) {
-        // Using hardcoded credentials for TheVou
-        $api_url = 'https://web-analyzer-api.onrender.com';
-        $api_key = 'development_key_only_for_testing';
-        $site_id = 'default';
-        
-        if (empty($api_url) || empty($api_key)) {
-            return new WP_Error('api_not_configured', 'API not configured. Please set the API URL and API Key in the plugin settings.');
-        }
-        
-        // Prepare the request
-        $request_url = trailingslashit($api_url) . 'bulk/process';
-        
-        $args = array(
-            'method' => 'POST',
-            'timeout' => 60,
-            'redirection' => 5,
-            'httpversion' => '1.1',
-            'headers' => array(
-                'Content-Type' => 'application/json',
-                'X-API-Key' => $api_key
-            ),
-            'body' => json_encode(array(
+        try {
+            // Prepare the request data
+            $request_data = array(
                 'content_items' => $content_items,
-                'site_id' => $site_id,
-                'knowledge_building' => $knowledge_building
-            )),
-        );
-        
-        // Make the request
-        $response = wp_remote_post($request_url, $args);
-        
-        // Check for errors
-        if (is_wp_error($response)) {
-            return $response;
-        }
-        
-        // Check response code
-        $response_code = wp_remote_retrieve_response_code($response);
-        if ($response_code != 200) {
-            $body = wp_remote_retrieve_body($response);
-            $error_message = 'API Error';
+                'knowledge_building' => $knowledge_building,
+                'batch_size' => 5,  // Process 5 articles at a time
+                'max_retries' => 3  // Allow up to 3 retries for failed items
+            );
             
-            if (!empty($body)) {
-                $body_json = json_decode($body, true);
-                if (isset($body_json['detail'])) {
-                    $error_message = $body_json['detail'];
-                }
+            // Make the API request
+            $response = wp_remote_post(
+                $this->get_api_url() . '/bulk/process',
+                array(
+                    'headers' => array(
+                        'Content-Type' => 'application/json',
+                        'X-API-Key' => $this->get_api_key()
+                    ),
+                    'body' => json_encode($request_data),
+                    'timeout' => 60
+                )
+            );
+            
+            if (is_wp_error($response)) {
+                throw new Exception($response->get_error_message());
             }
             
-            return new WP_Error('api_error', $error_message . ' (Code: ' . $response_code . ')');
+            $body = json_decode(wp_remote_retrieve_body($response), true);
+            
+            if (!$body || !isset($body['success'])) {
+                throw new Exception('Invalid response from API');
+            }
+            
+            if (!$body['success']) {
+                throw new Exception($body['message'] ?? 'Unknown error occurred');
+            }
+            
+            // Store the job ID for tracking
+            if (isset($body['job_id'])) {
+                update_option('web_analyzer_current_job_id', $body['job_id']);
+                update_option('web_analyzer_job_start_time', time());
+                
+                // Log the job details
+                $this->log_debug_message(sprintf(
+                    'Started bulk processing job %s with %d items (knowledge building: %s)',
+                    $body['job_id'],
+                    count($content_items),
+                    $knowledge_building ? 'true' : 'false'
+                ));
+            }
+            
+            return $body;
+            
+        } catch (Exception $e) {
+            $this->log_debug_message('Error in bulk processing: ' . $e->getMessage());
+            return array(
+                'success' => false,
+                'message' => $e->getMessage()
+            );
         }
-        
-        // Parse response
-        $body = wp_remote_retrieve_body($response);
-        $response_data = json_decode($body, true);
-        
-        if (!isset($response_data['job_id'])) {
-            return new WP_Error('api_invalid_response', 'Invalid API response format');
-        }
-        
-        return $response_data;
     }
     
-    /**
-     * Request job status from the API.
-     *
-     * @since    1.0.0
-     * @param    string    $job_id    The job ID.
-     * @return   array|WP_Error
-     */
-    public function request_job_status($job_id) {
-        // Using hardcoded credentials for TheVou
-        $api_url = 'https://web-analyzer-api.onrender.com';
-        $api_key = 'development_key_only_for_testing';
-        
-        if (empty($api_url) || empty($api_key) || empty($job_id)) {
-            return new WP_Error('api_not_configured', 'API not configured or missing job ID.');
-        }
-        
-        // Prepare the request
-        $request_url = trailingslashit($api_url) . 'bulk/status/' . $job_id;
-        
-        $args = array(
-            'method' => 'GET',
-            'timeout' => 30,
-            'redirection' => 5,
-            'httpversion' => '1.1',
-            'headers' => array(
-                'X-API-Key' => $api_key
-            )
-        );
-        
-        // Make the request
-        $response = wp_remote_get($request_url, $args);
-        
-        // Check for errors
-        if (is_wp_error($response)) {
-            return $response;
-        }
-        
-        // Check response code
-        $response_code = wp_remote_retrieve_response_code($response);
-        if ($response_code != 200) {
-            $body = wp_remote_retrieve_body($response);
-            $error_message = 'API Error';
+    private function update_knowledge_base_stats() {
+        try {
+            $response = wp_remote_get(
+                $this->get_api_url() . '/knowledge/stats',
+                array(
+                    'headers' => array(
+                        'X-API-Key' => $this->get_api_key()
+                    ),
+                    'timeout' => 30
+                )
+            );
             
-            if (!empty($body)) {
-                $body_json = json_decode($body, true);
-                if (isset($body_json['detail'])) {
-                    $error_message = $body_json['detail'];
-                }
+            if (is_wp_error($response)) {
+                throw new Exception($response->get_error_message());
             }
             
-            return new WP_Error('api_error', $error_message . ' (Code: ' . $response_code . ')');
+            $body = json_decode(wp_remote_retrieve_body($response), true);
+            
+            if ($body && isset($body['success']) && $body['success']) {
+                update_option('web_analyzer_knowledge_db_stats', $body['knowledge_db']);
+                
+                // Log the updated stats
+                $this->log_debug_message(sprintf(
+                    'Updated knowledge base stats: %d articles, %d entities, %d relationships',
+                    $body['knowledge_db']['article_count'],
+                    $body['knowledge_db']['entity_count'],
+                    $body['knowledge_db']['relationship_count']
+                ));
+            }
+            
+        } catch (Exception $e) {
+            $this->log_debug_message('Error updating knowledge base stats: ' . $e->getMessage());
         }
-        
-        // Parse response
-        $body = wp_remote_retrieve_body($response);
-        $response_data = json_decode($body, true);
-        
-        if (!isset($response_data['job_id']) || !isset($response_data['status'])) {
-            return new WP_Error('api_invalid_response', 'Invalid API response format');
-        }
-        
-        return $response_data;
     }
     
     /**
@@ -714,5 +705,26 @@ class Web_Analyzer_API {
         }
         
         return $response_data;
+    }
+    
+    private function get_api_url() {
+        $api_url = get_option('web_analyzer_api_url', 'https://web-analyzer-service-v2.onrender.com');
+        return trailingslashit($api_url);
+    }
+    
+    private function get_api_key() {
+        $api_key = get_option('web_analyzer_api_key', 'p6fHDUXqGRgV4SNIXrxLG-Z01TVXVjtIk5ODiMmj6F8');
+        if (empty($api_key)) {
+            throw new Exception('API key not configured. Please set the API key in the plugin settings.');
+        }
+        return $api_key;
+    }
+    
+    private function get_site_id() {
+        $site_id = get_option('web_analyzer_site_id', 'thevou');
+        if (empty($site_id)) {
+            throw new Exception('Site ID not configured. Please set the site ID in the plugin settings.');
+        }
+        return $site_id;
     }
 }
