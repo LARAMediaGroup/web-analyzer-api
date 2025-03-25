@@ -33,7 +33,8 @@ logger = logging.getLogger("web_analyzer_api")
 app = FastAPI(
     title="Web Analyzer API",
     description="API for analyzing web content and generating internal links",
-    version="1.0.0"
+    version="1.0.0",
+    root_path="/api/v1"  # Add root path
 )
 
 # Create a new FastAPI app with the /api/v1 prefix
@@ -115,13 +116,13 @@ class JobStatusResponse(BaseModel):
     knowledge_db: Optional[Dict[str, Any]] = None
 
 # Health check endpoint
-@api_app.get("/health", tags=["Health"])
+@app.get("/health", tags=["Health"])
 async def health_check():
     logger.info("Health check endpoint called")
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 # Content analysis endpoint with authentication and caching
-@api_app.post("/analyze/content", response_model=ContentAnalysisResponse, tags=["Analysis"])
+@app.post("/analyze/content", response_model=ContentAnalysisResponse, tags=["Analysis"])
 async def analyze_content(
     request: ContentAnalysisRequest,
     site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
