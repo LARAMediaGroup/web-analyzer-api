@@ -21,10 +21,10 @@ _CACHE_TTL = 300  # 5 minutes
 
 def load_site_credentials() -> Dict[str, str]:
     """
-    Load site credentials from config file.
+    Load site credentials from environment variables or config file.
     
     In a production environment, these would be stored in a database.
-    For local development, we use a simple JSON file.
+    For local development, we use environment variables or a simple JSON file.
     """
     global _sites_cache, _sites_cache_timestamp
     
@@ -35,8 +35,18 @@ def load_site_credentials() -> Dict[str, str]:
     
     # Cache expired or empty, reload
     try:
-        # In production, this would be a database query
-        credentials_path = os.path.join(os.getcwd(), "config", "site_credentials.json")
+        # First try to load from environment variables
+        site_credentials = os.getenv("SITE_CREDENTIALS")
+        if site_credentials:
+            try:
+                _sites_cache = json.loads(site_credentials)
+                _sites_cache_timestamp = current_time
+                return _sites_cache
+            except json.JSONDecodeError as e:
+                logger.error(f"Error parsing SITE_CREDENTIALS environment variable: {str(e)}")
+        
+        # If no environment variables, try config file
+        credentials_path = os.getenv("SITE_CONFIG_PATH", os.path.join(os.getcwd(), "config", "site_credentials.json"))
         
         # If file doesn't exist, create it with default credentials
         if not os.path.exists(credentials_path):
