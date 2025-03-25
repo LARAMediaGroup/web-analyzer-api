@@ -53,23 +53,27 @@ class FashionEntityAnalyzer:
         """Load dictionary of clothing items."""
         return {
             # Tops
-            "oxford shirt", "dress shirt", "button-down", "polo shirt", "t-shirt", "tee",
-            "henley", "sweater", "jumper", "cardigan", "pullover", "sweatshirt", "hoodie",
-            "tank top", "vest", "waistcoat", "blazer", "sport coat", "suit jacket", "dinner jacket",
+            "oxford shirt", "dress shirt", "button-down shirt", "polo shirt", "t-shirt", "tee",
+            "henley shirt", "sweater", "jumper", "cardigan", "pullover", "sweatshirt", "hoodie",
+            "tank top", "vest", "waistcoat", "navy blazer", "sport coat", "suit jacket", "dinner jacket",
+            "double breasted suit jacket", "single breasted suit jacket", "tweed jacket", "harrington jacket",
+            "field jacket", "safari jacket", "gilet", "puffer vest",
             
             # Bottoms
-            "trousers", "pants", "chinos", "khakis", "jeans", "denim", "corduroys", "joggers",
-            "sweatpants", "shorts", "bermudas", "swim shorts",
+            "khaki trousers", "dress trousers", "chinos", "preppy chinos", "jeans", "denim jeans",
+            "corduroy trousers", "joggers", "sweatpants", "shorts", "bermuda shorts", "swim shorts",
+            "formal trousers", "casual trousers", "pleated trousers", "flat front trousers",
             
             # Outerwear
-            "coat", "overcoat", "topcoat", "trench coat", "raincoat", "mac", "parka", "anorak",
+            "overcoat", "topcoat", "trench coat", "raincoat", "mac", "parka", "anorak",
             "windbreaker", "peacoat", "duffle coat", "leather jacket", "bomber jacket", 
             "harrington jacket", "field jacket", "safari jacket", "gilet", "puffer vest",
             
             # Footwear
-            "oxford shoes", "derby shoes", "brogues", "loafers", "penny loafers", "boat shoes",
-            "deck shoes", "driving shoes", "monk straps", "chelsea boots", "desert boots", "chukka boots",
-            "wingtips", "moccasins", "sneakers", "trainers", "sandals", "espadrilles", "slippers",
+            "oxford shoes", "derby shoes", "brogues", "penny loafers", "boat shoes",
+            "deck shoes", "driving shoes", "monk strap shoes", "chelsea boots", "desert boots",
+            "chukka boots", "wingtip shoes", "moccasins", "sneakers", "trainers", "sandals",
+            "espadrilles", "slippers", "dress shoes", "formal shoes", "casual shoes",
             
             # Accessories
             "necktie", "tie", "bow tie", "pocket square", "cufflinks", "tie bar", "tie clip",
@@ -78,7 +82,7 @@ class FashionEntityAnalyzer:
             
             # Full outfits
             "suit", "tuxedo", "dinner suit", "three-piece suit", "two-piece suit", "ensemble",
-            "outfit", "look", "attire"
+            "outfit", "look", "attire", "formal attire", "business attire", "casual attire"
         }
     
     def _load_fashion_brands(self) -> Set[str]:
@@ -107,23 +111,28 @@ class FashionEntityAnalyzer:
         """Load dictionary of style categories."""
         return {
             # Traditional/conservative styles
-            "old money", "ivy league", "preppy", "trad", "traditional", "conservative",
-            "classic", "timeless", "heritage", "vintage", "retro", "smart", "formal",
-            "business casual", "casual", "smart casual", "business formal", "black tie",
-            "white tie", "cocktail attire", "evening wear",
+            "old money style", "old money fashion", "ivy league style", "preppy style",
+            "trad style", "traditional style", "conservative style", "classic style",
+            "heritage style", "vintage style", "retro style", "smart style", "formal style",
+            "business casual", "casual style", "smart casual", "business formal",
+            "black tie", "white tie", "cocktail attire", "evening wear",
             
             # Regional styles
-            "american traditional", "british", "italian", "french", "scandinavian", 
-            "japanese", "korean", "nautical", "coastal", "country", "rural", "urban",
+            "american traditional", "british style", "italian style", "french style",
+            "scandinavian style", "japanese style", "korean style", "nautical style",
+            "coastal style", "country style", "rural style", "urban style",
             "ivy style", "british countryside", "english country", "scottish highland",
-            "italian sprezzatura", "parisian", "riviera", "mediterranean", "alpine", 
-            "cape cod", "nantucket", "hamptons", "upper east side", "roppongi hills",
-            "sloane ranger", "kensington", "chelsea", "mayfair",
+            "italian sprezzatura", "parisian style", "riviera style", "mediterranean style",
+            "alpine style", "cape cod style", "nantucket style", "hamptons style",
+            "upper east side", "roppongi hills", "sloane ranger", "kensington style",
+            "chelsea style", "mayfair style",
             
             # Contemporary styles
-            "minimalist", "capsule wardrobe", "streetwear", "athleisure", "techwear",
-            "workwear", "utility", "avant-garde", "contemporary", "modern", "clean-cut",
-            "smart", "sharp", "polished", "refined", "new money", "luxury", "high-end"
+            "minimalist style", "capsule wardrobe", "streetwear", "athleisure",
+            "techwear", "workwear", "utility style", "avant-garde", "contemporary style",
+            "modern style", "clean-cut style", "smart style", "sharp style",
+            "polished style", "refined style", "new money style", "luxury style",
+            "high-end style", "punk style", "goth style", "boho chic", "bcbg style"
         }
     
     def _load_materials(self) -> Set[str]:

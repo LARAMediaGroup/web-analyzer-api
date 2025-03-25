@@ -191,22 +191,48 @@ class SemanticContextAnalyzer:
             # Preprocess title
             title_tokens = self._preprocess_text(title)
             
-            # Find the most frequent word from the title in the content
-            title_words_in_content = [w for w in title_tokens if w in word_freq]
+            # Look for compound terms in the title
+            title_compounds = []
+            for i in range(len(title_tokens) - 1):
+                compound = f"{title_tokens[i]} {title_tokens[i+1]}"
+                if compound in " ".join(preprocessed_text):
+                    title_compounds.append(compound)
             
-            if title_words_in_content:
-                # Sort by frequency in content
-                title_words_in_content.sort(key=lambda w: word_freq[w], reverse=True)
-                primary_topic = title_words_in_content[0]
+            if title_compounds:
+                # Use the most frequent compound term
+                title_compounds.sort(key=lambda w: word_freq.get(w, 0), reverse=True)
+                primary_topic = title_compounds[0]
+            else:
+                # Fall back to single words from title
+                title_words_in_content = [w for w in title_tokens if w in word_freq]
+                if title_words_in_content:
+                    title_words_in_content.sort(key=lambda w: word_freq[w], reverse=True)
+                    primary_topic = title_words_in_content[0]
         
-        # If no primary topic from title, use most frequent word
-        if not primary_topic and most_common:
-            primary_topic = most_common[0][0]
+        # If no primary topic from title, look for compound terms in content
+        if not primary_topic:
+            content_compounds = []
+            for i in range(len(preprocessed_text) - 1):
+                compound = f"{preprocessed_text[i]} {preprocessed_text[i+1]}"
+                if compound in self.style_categories or compound in self.clothing_items:
+                    content_compounds.append(compound)
+            
+            if content_compounds:
+                # Use the most frequent compound term
+                content_compounds.sort(key=lambda w: word_freq.get(w, 0), reverse=True)
+                primary_topic = content_compounds[0]
+            elif most_common:
+                primary_topic = most_common[0][0]
         
-        # Extract subtopics (excluding primary topic)
-        subtopics = [word for word, _ in most_common if word != primary_topic][:5]
+        # Extract subtopics (excluding primary topic and its components)
+        subtopics = []
+        primary_components = primary_topic.split() if primary_topic else []
         
-        return primary_topic, subtopics
+        for word, _ in most_common:
+            if word != primary_topic and word not in primary_components:
+                subtopics.append(word)
+        
+        return primary_topic, subtopics[:5]
     
     def _analyze_paragraph_topics(self, preprocessed_paragraphs: List[List[str]]) -> List[Dict[str, Any]]:
         """
