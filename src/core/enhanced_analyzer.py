@@ -1,11 +1,8 @@
 """
 Enhanced Content Analyzer Module
 
-This module combines multiple specialized analyzers to:
-1. Extract fashion entities and topics
-2. Understand the semantic structure of content
-3. Generate high-quality anchor text
-4. Find link opportunities based on relevance
+This module combines multiple specialized analyzers and semantic similarity
+to provide comprehensive content analysis and internal linking suggestions.
 """
 
 import os
@@ -14,19 +11,31 @@ import logging
 from typing import List, Dict, Any, Tuple, Optional
 import re
 from datetime import datetime
+import numpy as np
+# REMOVE: from sklearn.metrics.pairwise import cosine_similarity # No longer needed here
 
 # Import specialized analyzers
 from src.core.analyzers.fashion_entity_analyzer import FashionEntityAnalyzer
 from src.core.analyzers.semantic_context_analyzer import SemanticContextAnalyzer
 from src.core.analyzers.anchor_text_generator import AnchorTextGenerator
+# Import KnowledgeDatabase and the loaded model
+from src.core.knowledge_db.knowledge_database import KnowledgeDatabase, model as sentence_transformer_model
 
 # Configure logging
 logger = logging.getLogger("web_analyzer.enhanced_analyzer")
 
+# --- REMOVE UNUSED HELPER FUNCTION ---
+# def calculate_cosine_similarity(embedding1: np.ndarray, embedding2: np.ndarray) -> float:
+#    """Calculates cosine similarity between two numpy embedding vectors."""
+#    # ... (implementation removed) ...
+# --- END REMOVE UNUSED HELPER FUNCTION ---
+
+
 class EnhancedContentAnalyzer:
     """
     Enhanced content analyzer that combines multiple specialized analyzers
-    for comprehensive content analysis and high-quality link suggestions.
+    and semantic search via embeddings for comprehensive content analysis
+    and high-quality link suggestions.
     """
     
     def __init__(self, config_path: str = "config.json"):
@@ -34,395 +43,298 @@ class EnhancedContentAnalyzer:
         Initialize the enhanced content analyzer.
         
         Args:
-            config_path: Path to the configuration file
+            config_path: Path to the main configuration file (relative to project root)
         """
-        self.config = self._load_config(config_path)
+        logger.info("Initializing EnhancedContentAnalyzer...")
+        project_root = os.path.join(os.path.dirname(__file__), '..', '..') # Navigate up from src/core
+        self.config = self._load_config(os.path.join(project_root, config_path))
         
-        # Initialize specialized analyzers
+        # Initialize specialized analyzers (consider lazy loading?)
         self.fashion_analyzer = FashionEntityAnalyzer()
         self.semantic_analyzer = SemanticContextAnalyzer()
         self.anchor_generator = AnchorTextGenerator()
         
-        # Relevance threshold for link suggestions
-        self.min_relevance = self.config.get("min_relevance", 0.4)
+        # Configuration for relevance scoring
+        self.min_relevance = self.config.get("min_relevance", 0.45) # Default threshold potentially higher now
+        self.semantic_weight = self.config.get("semantic_weight", 0.7) # Weight for semantic score
+        self.keyword_weight = self.config.get("keyword_weight", 0.3) # Weight for keyword score
         self.min_confidence = self.config.get("min_confidence", 0.6)
         self.max_links_per_paragraph = self.config.get("max_links_per_paragraph", 2)
+        self.max_suggestions = self.config.get("max_suggestions", 15)
+        self.min_paragraph_length = self.config.get("min_paragraph_length", 50)
+
+        # Check if the sentence transformer model loaded correctly
+        if sentence_transformer_model is None:
+             logger.error("Sentence transformer model failed to load! Semantic search will be disabled.")
+             self.semantic_weight = 0.0 # Disable semantic contribution if model failed
+             self.keyword_weight = 1.0
+
+        logger.info("EnhancedContentAnalyzer initialized.")
+        logger.info(f"Relevance config: min_relevance={self.min_relevance}, semantic_weight={self.semantic_weight}, keyword_weight={self.keyword_weight}")
+
     
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """Load configuration from JSON file."""
         try:
             if os.path.exists(config_path):
                 with open(config_path, 'r') as f:
+                    logger.info(f"Loading main config from: {config_path}")
                     return json.load(f)
             else:
-                logger.warning(f"Config file {config_path} not found, using defaults")
+                logger.warning(f"Main config file {config_path} not found, using defaults")
+                # Define essential defaults here
                 return {
-                    "min_relevance": 0.4,
+                    "knowledge_db_dir": "data/knowledge_db", # Needed for KB init
+                    "min_relevance": 0.45,
+                    "semantic_weight": 0.7,
+                    "keyword_weight": 0.3,
                     "min_confidence": 0.6,
                     "max_links_per_paragraph": 2,
                     "min_paragraph_length": 50,
-                    "max_suggestions": 15
+                    "max_suggestions": 15,
+                    "min_content_length": 100
                 }
         except Exception as e:
-            logger.error(f"Error loading config: {str(e)}")
-            return {}
+            logger.error(f"Error loading main config from {config_path}: {str(e)}")
+            # Return essential defaults on error
+            return {
+                 "knowledge_db_dir": "data/knowledge_db",
+                 "min_relevance": 0.45,
+                 "semantic_weight": 0.7,
+                 "keyword_weight": 0.3,
+                 "min_confidence": 0.6,
+                 "max_links_per_paragraph": 2,
+                 "min_paragraph_length": 50,
+                 "max_suggestions": 15,
+                 "min_content_length": 100
+            }
     
     def _split_into_paragraphs(self, content: str) -> List[str]:
         """Split content into paragraphs."""
-        paragraphs = re.split(r'\n\n|\n', content)
-        return [p.strip() for p in paragraphs if p.strip()]
-    
+        if not content: return []
+        paragraphs = re.split(r'\n\n|\n{2,}', content) # Split on 2+ newlines
+        # Fallback to single newline if needed, but filter short lines
+        if len(paragraphs) <= 1 and '\n' in content:
+             paragraphs = [p for p in content.split('\n') if len(p.strip()) > 20] # Filter short lines if using single newline split
+        return [p.strip() for p in paragraphs if len(p.strip()) >= self.min_paragraph_length]
+
+
     def analyze_content(
         self, 
         content: str, 
         title: str, 
-        target_pages: List[Dict[str, str]],
-        url: Optional[str] = None
+        site_id: str, # Added site_id parameter
+        url: Optional[str] = None # URL of the current content being analyzed
     ) -> Dict[str, Any]:
         """
-        Perform comprehensive content analysis and find link opportunities.
+        Perform comprehensive content analysis using semantic search and find link opportunities.
         
         Args:
             content: The content to analyze
             title: The title of the content
-            target_pages: List of potential target pages with URL and title
-            url: URL of the current content (optional)
+            site_id: Identifier for the website (used for KnowledgeDatabase)
+            url: URL of the current content (used to exclude self-links)
             
         Returns:
             Dictionary with analysis results and link suggestions
         """
         start_time = datetime.now()
-        logger.info(f"Starting enhanced analysis for: {title}")
+        logger.info(f"Starting enhanced analysis for site: '{site_id}', title: '{title}' (URL: {url})")
         
         # Basic validation
-        if not content or not title or not target_pages:
-            return {
-                "analysis": {},
-                "link_suggestions": [],
-                "processing_time": 0,
-                "status": "error",
-                "error": "Missing required parameters"
-            }
-        
+        if not content or not title or not site_id:
+            return self._format_error_response("Missing required parameters (content, title, or site_id)")
+
+        # Skip analysis if content is too short
+        min_length = self.config.get("min_content_length", 100)
+        if len(content) < min_length:
+             return self._format_error_response(f"Content too short (minimum {min_length} characters)")
+
         try:
-            # Split content into paragraphs
+            # Initialize Knowledge Base
+            kb = KnowledgeDatabase(site_id=site_id)
+
+            # Perform basic analysis on source content
+            analysis_result = self._perform_basic_analysis(content, title)
+
+            # Split source content into paragraphs
             paragraphs = self._split_into_paragraphs(content)
-            
-            # Skip analysis if content is too short
-            min_length = self.config.get("min_content_length", 100)
-            if len(content) < min_length:
-                return {
-                    "analysis": {},
-                    "link_suggestions": [],
-                    "processing_time": 0,
-                    "status": "error",
-                    "error": f"Content too short (minimum {min_length} characters)"
-                }
-            
+            logger.info(f"Analyzing {len(paragraphs)} paragraphs (min length {self.min_paragraph_length}).")
+
+            # --- Find Link Opportunities ---
+            all_opportunities = []
+            processed_targets_for_paragraph = {} # Track targets linked per paragraph
+
+            if sentence_transformer_model is None:
+                logger.warning("Semantic model not available, skipping link opportunity finding.")
+            else:
+                for para_idx, paragraph in enumerate(paragraphs):
+                    # Check if we've already added max links for this paragraph
+                    if processed_targets_for_paragraph.get(para_idx, 0) >= self.max_links_per_paragraph:
+                         continue
+
+                    logger.debug(f"Processing Paragraph {para_idx}...")
+                    # Generate embedding for the current paragraph
+                    paragraph_embedding = self._generate_embedding(paragraph)
+                    if paragraph_embedding is None:
+                        logger.warning(f"Could not generate embedding for paragraph {para_idx}. Skipping.")
+                        continue
+
+                    # --- USE NEW KB SEMANTIC SEARCH ---
+                    # Find top N relevant targets using semantic similarity directly from KB
+                    relevant_targets = kb.find_related_content_semantic(
+                         query_embedding=paragraph_embedding,
+                         exclude_url=url,
+                         top_n=10, # How many candidates to consider per paragraph
+                         min_similarity=self.min_relevance # Use configured min relevance as threshold
+                    )
+                    # --- END NEW KB SEMANTIC SEARCH ---
+
+
+                    if not relevant_targets:
+                         logger.debug(f"  No semantically relevant targets found for paragraph {para_idx} above threshold {self.min_relevance}.")
+                         continue
+
+                    logger.info(f"  Found {len(relevant_targets)} potentially relevant targets via semantic search for paragraph {para_idx}.")
+
+                    # --- Process Semantically Relevant Targets ---
+                    # We already have relevant targets, no need to calculate relevance again here.
+                    # The 'similarity' score from find_related_content_semantic is our primary relevance.
+                    for target in relevant_targets:
+                        # Check again if we've hit the max links for this paragraph
+                        if processed_targets_for_paragraph.get(para_idx, 0) >= self.max_links_per_paragraph:
+                            logger.debug(f"Reached max links ({self.max_links_per_paragraph}) for paragraph {para_idx}.")
+                            break # Stop processing targets for this paragraph
+
+                        target_title = target["title"]
+                        target_url = target["url"]
+                        semantic_similarity_score = target["similarity"] # Get score from KB search result
+
+                        logger.info(f"    Considering target: '{target_title}' (Similarity: {semantic_similarity_score:.3f})")
+
+                        # Find best anchor text for this paragraph -> target pair
+                        target_keywords = self._extract_keywords_from_title(target_title)
+
+                        anchor_options = self.anchor_generator.generate_anchor_options(
+                            text=paragraph,
+                            target_keywords=target_keywords,
+                            target_title=target_title
+                        )
+
+                        if anchor_options:
+                            # Select best anchor based on confidence
+                            best_anchor = max(anchor_options, key=lambda x: x.get("confidence", 0.0))
+
+                            if best_anchor.get("confidence", 0.0) >= self.min_confidence:
+                                logger.info(f"      Found suitable anchor: '{best_anchor['text']}' (Conf: {best_anchor['confidence']:.2f})")
+                                all_opportunities.append({
+                                    "paragraph_index": para_idx,
+                                    "target_url": target_url,
+                                    "target_title": target_title,
+                                    # Use semantic similarity as the primary relevance score
+                                    "relevance": round(semantic_similarity_score, 3),
+                                    "anchor_text": best_anchor["text"],
+                                    "anchor_context": best_anchor.get("context", ""),
+                                    "anchor_confidence": round(best_anchor.get("confidence", 0.0), 2)
+                                })
+                                # Increment count of links added for this paragraph
+                                processed_targets_for_paragraph[para_idx] = processed_targets_for_paragraph.get(para_idx, 0) + 1
+                            else:
+                                 logger.debug(f"      Anchor '{best_anchor['text']}' confidence {best_anchor.get('confidence', 0.0):.2f} < {self.min_confidence}. Skipping.")
+                        else:
+                            logger.debug(f"      No suitable anchor options found for target '{target_title}'.")
+
+
+            # --- Post-process and Format Results ---
+            # Sort opportunities primarily by relevance (semantic similarity), then confidence
+            all_opportunities.sort(key=lambda x: (x["relevance"], x["anchor_confidence"]), reverse=True)
+
+            # Apply overall suggestion limit
+            final_suggestions = all_opportunities[:self.max_suggestions]
+            logger.info(f"Generated {len(final_suggestions)} final link suggestions (limit: {self.max_suggestions}).")
+
+            return self._format_success_response(analysis_result, final_suggestions, start_time)
+
+        except Exception as e:
+            logger.error(f"Critical error during enhanced analysis for site '{site_id}', title '{title}': {str(e)}", exc_info=True)
+            return self._format_error_response(f"Internal server error during analysis: {str(e)}")
+
+    def _perform_basic_analysis(self, content: str, title: str) -> Dict[str, Any]:
+         """Performs non-linking analysis (entities, topics)."""
+         logger.debug("Performing basic analysis (fashion entities, semantic context)...")
+         try:
             # 1. Fashion entity analysis
             fashion_analysis = self.fashion_analyzer.analyze_content(content, title)
-            
-            # 2. Semantic context analysis
+            # 2. Semantic context analysis (may use NLTK, ensure data downloaded)
             semantic_analysis = self.semantic_analyzer.analyze_content(content, title)
             
-            # 3. Extract target page information for linking
-            target_info = self._extract_target_info(target_pages)
-            
-            # 4. Find link opportunities
-            link_opportunities = self._find_link_opportunities(
-                paragraphs, 
-                fashion_analysis, 
-                semantic_analysis, 
-                target_info,
-                title
-            )
-            
-            # 5. Generate final link suggestions
-            link_suggestions = self._generate_link_suggestions(link_opportunities, content)
-            
-            # Calculate processing time
-            processing_time = (datetime.now() - start_time).total_seconds()
-            
-            # Prepare complete analysis result
             return {
-                "analysis": {
-                    "fashion_entities": fashion_analysis["entities"],
-                    "primary_theme": fashion_analysis["primary_theme"],
-                    "semantic_structure": semantic_analysis["structure"],
-                    "primary_topic": semantic_analysis["primary_topic"],
-                    "subtopics": semantic_analysis["subtopics"]
-                },
-                "link_suggestions": link_suggestions,
-                "processing_time": processing_time,
+                    "fashion_entities": fashion_analysis.get("entities", {}),
+                    "primary_theme": fashion_analysis.get("primary_theme"),
+                    "semantic_structure": semantic_analysis.get("structure", {}),
+                    "primary_topic": semantic_analysis.get("primary_topic"),
+                    "subtopics": semantic_analysis.get("subtopics", [])
+                }
+         except Exception as e:
+              logger.error(f"Error during basic analysis sub-step: {e}", exc_info=True)
+              return {"error": "Failed during basic analysis"}
+
+
+    def _generate_embedding(self, text: str) -> Optional[np.ndarray]:
+         """Generates embedding for the given text using the loaded global model."""
+         if sentence_transformer_model is None:
+             return None
+         if not text or not isinstance(text, str):
+             return None
+         try:
+             # Models often work best on sentences or short paragraphs.
+             # Consider splitting longer paragraphs? For now, embed whole paragraph.
+             embedding = sentence_transformer_model.encode(text, convert_to_numpy=True)
+             return embedding
+         except Exception as e:
+             logger.error(f"Error generating paragraph embedding: {e}", exc_info=True)
+             return None
+
+    def _extract_keywords_from_title(self, title: str) -> List[str]:
+        """Extracts potential keywords from a title for anchor generation."""
+        # Simple approach: split, lowercase, filter short words/stopwords
+        # Could be enhanced using fashion_analyzer results if needed.
+        try:
+            # Use NLTK stopwords if available, otherwise basic list
+            try:
+                 from nltk.corpus import stopwords
+                 stop_words = set(stopwords.words('english'))
+            except ImportError:
+                 stop_words = {"a", "an", "the", "in", "on", "at", "for", "to", "of", "and", "or", "is", "are", "how"} # Basic list
+
+            words = re.findall(r'\b\w+\b', title.lower())
+            keywords = [word for word in words if len(word) > 2 and word not in stop_words]
+            logger.debug(f"Extracted keywords from title '{title}': {keywords}")
+            return keywords
+        except Exception as e:
+             logger.warning(f"Could not extract keywords from title '{title}': {e}")
+             return title.lower().split() # Fallback
+
+    def _format_success_response(self, analysis_result: Dict, suggestions: List, start_time: datetime) -> Dict:
+         """Formats a successful analysis response."""
+         processing_time = (datetime.now() - start_time).total_seconds()
+         return {
+                "analysis": analysis_result,
+                "link_suggestions": suggestions,
+                "processing_time": round(processing_time, 3),
                 "status": "success"
             }
         
-        except Exception as e:
-            logger.error(f"Error in enhanced analysis: {str(e)}")
-            return {
+    def _format_error_response(self, error_message: str) -> Dict:
+        """Formats an error response."""
+        return {
                 "analysis": {},
                 "link_suggestions": [],
                 "processing_time": 0,
                 "status": "error",
-                "error": str(e)
+                "error": error_message
             }
-    
-    def _extract_target_info(self, target_pages: List[Dict[str, str]]) -> Dict[str, Dict[str, Any]]:
-        """
-        Extract and organize information about target pages.
-        
-        Args:
-            target_pages: List of target pages with URL and title
-            
-        Returns:
-            Dictionary with information about each target page
-        """
-        target_info = {}
-        
-        for page in target_pages:
-            url = page.get("url", "")
-            title = page.get("title", "")
-            
-            if not url or not title:
-                continue
-            
-            # Extract keywords from title
-            keywords = []
-            
-            # Extract style keywords
-            for style in self.fashion_analyzer.style_categories:
-                if style.lower() in title.lower():
-                    keywords.append(style)
-            
-            # Extract clothing keywords
-            for item in self.fashion_analyzer.clothing_items:
-                if item.lower() in title.lower():
-                    keywords.append(item)
-            
-            # Extract body shape keywords
-            for shape in self.fashion_analyzer.body_shapes:
-                if shape.lower() in title.lower():
-                    keywords.append(shape)
-            
-            # Extract colour keywords
-            for colour in self.fashion_analyzer.colours:
-                if colour.lower() in title.lower():
-                    keywords.append(colour)
-            
-            # If no specific keywords found, use title words
-            if not keywords:
-                # Split the title and use words with 4+ characters
-                title_words = [word.lower() for word in title.split() if len(word) >= 4]
-                keywords.extend(title_words)
-            
-            target_info[url] = {
-                "title": title,
-                "keywords": keywords
-            }
-        
-        return target_info
-    
-    def _find_link_opportunities(
-        self,
-        paragraphs: List[str],
-        fashion_analysis: Dict[str, Any],
-        semantic_analysis: Dict[str, Any],
-        target_info: Dict[str, Dict[str, Any]],
-        source_title: str
-    ) -> List[Dict[str, Any]]:
-        """
-        Find opportunities for internal links.
-        
-        Args:
-            paragraphs: List of content paragraphs
-            fashion_analysis: Results from fashion entity analysis
-            semantic_analysis: Results from semantic context analysis
-            target_info: Information about target pages
-            source_title: Title of the source content
-            
-        Returns:
-            List of link opportunities
-        """
-        opportunities = []
-        
-        # For each paragraph, find matching target pages
-        for para_idx, paragraph in enumerate(paragraphs):
-            # Skip paragraphs that are too short
-            min_paragraph_length = self.config.get("min_paragraph_length", 50)
-            if len(paragraph) < min_paragraph_length:
-                continue
-            
-            # Count opportunities for this paragraph
-            para_opportunities = 0
-            
-            # Check each target page for relevance to this paragraph
-            for target_url, target_data in target_info.items():
-                # Skip if we already have enough links for this paragraph
-                if para_opportunities >= self.max_links_per_paragraph:
-                    break
-                
-                target_title = target_data["title"]
-                target_keywords = target_data["keywords"]
-                
-                # Calculate relevance between paragraph and target
-                relevance = self._calculate_relevance(
-                    paragraph, 
-                    target_keywords, 
-                    target_title,
-                    fashion_analysis
-                )
-                
-                # Skip if not relevant enough
-                if relevance < self.min_relevance:
-                    continue
-                
-                # Generate anchor text options
-                anchor_options = self.anchor_generator.generate_anchor_options(
-                    paragraph, 
-                    target_keywords, 
-                    target_title
-                )
-                
-                # Filter anchor options by minimum confidence
-                valid_anchors = [a for a in anchor_options if a["confidence"] >= self.min_confidence]
-                
-                # Skip if no valid anchor options
-                if not valid_anchors:
-                    continue
-                
-                # Add opportunity
-                opportunities.append({
-                    "paragraph_index": para_idx,
-                    "paragraph": paragraph,
-                    "target_url": target_url,
-                    "target_title": target_title,
-                    "relevance": relevance,
-                    "anchor_options": valid_anchors
-                })
-                
-                para_opportunities += 1
-        
-        # Sort opportunities by relevance (highest first)
-        opportunities.sort(key=lambda x: x["relevance"], reverse=True)
-        
-        return opportunities
-    
-    def _calculate_relevance(
-        self,
-        paragraph: str,
-        target_keywords: List[str],
-        target_title: str,
-        fashion_analysis: Dict[str, Any]
-    ) -> float:
-        """
-        Calculate relevance between paragraph and target.
-        
-        Args:
-            paragraph: The paragraph text
-            target_keywords: Keywords from the target page
-            target_title: Title of the target page
-            fashion_analysis: Fashion entity analysis results
-            
-        Returns:
-            Float relevance score (0.0 to 1.0)
-        """
-        # Start with base relevance
-        relevance = 0.0
-        paragraph_lower = paragraph.lower()
-        target_title_lower = target_title.lower()
-        
-        # 1. Keyword matches in paragraph
-        for keyword in target_keywords:
-            if keyword.lower() in paragraph_lower:
-                # Weight by keyword length (longer = more specific)
-                keyword_weight = min(1.0, len(keyword) / 20)
-                relevance += 0.2 * keyword_weight
-        
-        # 2. Title word matches
-        title_words = [word.lower() for word in target_title.split() if len(word) > 3]
-        for word in title_words:
-            if word in paragraph_lower:
-                relevance += 0.1
-        
-        # 3. Entity matches (fashion-specific relevance)
-        entities = fashion_analysis["entities"]
-        
-        # Check if target has clothing items mentioned in paragraph
-        for item in entities.get("clothing_items", []):
-            if item.lower() in target_title_lower:
-                relevance += 0.2
-        
-        # Check if target has style categories mentioned in paragraph
-        for style in entities.get("styles", []):
-            if style.lower() in target_title_lower:
-                relevance += 0.3
-        
-        # Check if target has body shapes mentioned in paragraph
-        for shape in entities.get("body_shapes", []):
-            if shape.lower() in target_title_lower:
-                relevance += 0.3
-        
-        # Check if target has colours mentioned in paragraph
-        for colour in entities.get("colours", []):
-            if colour.lower() in target_title_lower:
-                relevance += 0.2
-        
-        # 4. Topic similarity
-        primary_theme = fashion_analysis.get("primary_theme")
-        if primary_theme and primary_theme.lower() in target_title_lower:
-            relevance += 0.3
-        
-        # Cap relevance at 1.0
-        return min(relevance, 1.0)
-    
-    def _generate_link_suggestions(
-        self,
-        opportunities: List[Dict[str, Any]],
-        content: str
-    ) -> List[Dict[str, Any]]:
-        """
-        Generate final link suggestions from opportunities.
-        
-        Args:
-            opportunities: List of link opportunities
-            content: Original content
-            
-        Returns:
-            List of link suggestions in standardized format
-        """
-        # Get maximum number of suggestions
-        max_suggestions = self.config.get("max_suggestions", 15)
-        
-        # Track URLs to avoid duplicates
-        seen_urls = set()
-        suggestions = []
-        
-        # Process opportunities
-        for opp in opportunities:
-            # Skip if we already suggested this URL
-            target_url = opp["target_url"]
-            if target_url in seen_urls:
-                continue
-            
-            # Get best anchor option
-            if opp["anchor_options"]:
-                best_anchor = opp["anchor_options"][0]
-                
-                # Add to suggestions
-                suggestions.append({
-                    "anchor_text": best_anchor["text"],
-                    "target_url": target_url,
-                    "context": best_anchor["context"],
-                    "confidence": best_anchor["confidence"],
-                    "paragraph_index": opp["paragraph_index"],
-                    "relevance": opp["relevance"]
-                })
-                
-                # Track URL to avoid duplicates
-                seen_urls.add(target_url)
-                
-                # Stop if we have enough suggestions
-                if len(suggestions) >= max_suggestions:
-                    break
-        
-        return suggestions
+
+    # Remove or adapt old methods if they are no longer used or conflict
+    # def _extract_target_info(...) -> No longer directly used, KB provides info
+    # def _find_link_opportunities(...) -> Logic integrated into analyze_content loop

@@ -1,14 +1,31 @@
+# API & Web Framework
 fastapi>=0.95.0
 uvicorn>=0.21.1
+python-multipart>=0.0.6 # For file uploads if needed by API
+jinja2>=3.1.2 # For templating if used
+
+# Data Handling & Validation
 pydantic>=1.10.7
-python-multipart>=0.0.6
-python-docx>=0.8.11
+PyYAML>=6.0 # For reading YAML config files
+
+# NLP & Analysis
 nltk>=3.8.1
-beautifulsoup4>=4.12.0
-python-jose>=3.3.0
-passlib>=1.7.4
-python-dotenv>=1.0.0
-aiofiles>=23.1.0
-jinja2>=3.1.2
-requests>=2.28.2
-numpy>=1.20.0
+beautifulsoup4>=4.12.0 # For HTML parsing if needed
+numpy>=1.20.0 # Often a dependency for ML libraries
+sentence-transformers>=2.2.0 # Added for semantic embeddings
+scikit-learn>=1.0.0 # Added for cosine_similarity and potentially other ML utilities
+
+# Document Handling
+python-docx>=0.8.11 # For reading .docx files if needed
+
+# Authentication & Security
+python-jose>=3.3.0 # For JWT handling
+passlib>=1.7.4 # For password hashing
+
+# Utilities & Async
+python-dotenv>=1.0.0 # For .env files
+aiofiles>=23.1.0 # For async file operations
+requests>=2.28.2 # For making HTTP requests if needed
+
+# Database (implicitly used by knowledge_database.py)
+# sqlite3 is built-in

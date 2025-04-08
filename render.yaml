@@ -1,30 +1,20 @@
 services:
   # Web service
   - type: web
-    name: web-analyzer-service
+    name: web-analyzer-service-v2
     env: docker
     region: oregon
     plan: starter
     branch: main
     numInstances: 1
-    healthCheckPath: /api/v1/health
-    routes:
-      - type: rewrite
-        source: /api/v1/*
-        destination: /api/v1/$1
-      - type: rewrite
-        source: /health
-        destination: /api/v1/health
-      - type: rewrite
-        source: /*
-        destination: /api/v1/$1
+    healthCheckPath: /health
     envVars:
       - key: SECRET_KEY
         generateValue: true
       - key: DEBUG
-        value: True
+        value: False
       - key: LOG_LEVEL
-        value: DEBUG
+        value: INFO
       - key: MAX_WORKERS
         value: 4
       - key: NLTK_DATA

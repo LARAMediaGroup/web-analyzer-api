@@ -13,7 +13,6 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 from src.core.bulk_processor import BulkContentProcessor
-from src.api.enhanced_integration import get_target_urls_for_site
 
 # Configure logging
 logger = logging.getLogger("web_analyzer_api.bulk_integration")
@@ -61,16 +60,12 @@ async def start_bulk_processing(
             "last_update": time.time()
         }
         
-        # Get target URLs for the site
-        target_urls = get_target_urls_for_site(site_id)
-        
         # Start background task to run the processing
         asyncio.create_task(
             _run_bulk_processing(
                 job_id=job_id,
                 processor=processor,
                 content_items=content_items,
-                target_pages=target_urls,
                 site_id=site_id,
                 batch_size=batch_size,
                 knowledge_building=knowledge_building
@@ -96,7 +91,6 @@ async def _run_bulk_processing(
     job_id: str,
     processor: BulkContentProcessor,
     content_items: List[Dict[str, Any]],
-    target_pages: List[Dict[str, str]],
     site_id: Optional[str] = None,
     batch_size: Optional[int] = None,
     knowledge_building: bool = False
@@ -108,7 +102,6 @@ async def _run_bulk_processing(
         job_id (str): The job ID
         processor (BulkContentProcessor): The processor instance
         content_items (List[Dict[str, Any]]): The content items to process
-        target_pages (List[Dict[str, str]]): The target pages for links
         site_id (str, optional): The site identifier
         batch_size (int, optional): The batch size
         knowledge_building (bool, optional): Whether to run in knowledge building mode
@@ -133,7 +126,6 @@ async def _run_bulk_processing(
         # Run the processor
         results, stats = await processor.process_content_items(
             content_items=content_items,
-            target_pages=target_pages,
             site_id=site_id,
             batch_size=batch_size,
             knowledge_building_mode=knowledge_building

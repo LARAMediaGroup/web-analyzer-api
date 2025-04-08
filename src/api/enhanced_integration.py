@@ -14,71 +14,60 @@ from src.core.enhanced_analyzer import EnhancedContentAnalyzer
 logger = logging.getLogger("web_analyzer_api.enhanced_integration")
 
 # Initialize analyzer
-enhanced_analyzer = EnhancedContentAnalyzer()
+try:
+    # Config path relative to project root expected by analyzer's constructor logic now
+    analyzer = EnhancedContentAnalyzer(config_path="config.json")
+    logger.info("EnhancedContentAnalyzer instance created for integration.")
+except Exception as e:
+    logger.error(f"Failed to initialize EnhancedContentAnalyzer in integration module: {e}", exc_info=True)
+    analyzer = None # Set to None to indicate failure
 
 async def analyze_content_enhanced(
-    content: str, 
-    title: str, 
-    url: Optional[str] = None,
-    site_id: Optional[str] = None
+    content: str,
+    title: str,
+    site_id: str,
+    url: Optional[str] = None
 ) -> Dict[str, Any]:
     """
-    Process enhanced content analysis as an async task.
-    
+    Analyzes content using the EnhancedContentAnalyzer.
+
     Args:
-        content (str): The content to analyze
-        title (str): The title of the content
-        url (str, optional): The URL of the content
-        site_id (str, optional): The site identifier
-        
+        content: The content text.
+        title: The content title.
+        site_id: The identifier for the site.
+        url: The URL of the content being analyzed.
+
     Returns:
-        Dict[str, Any]: Analysis results
+        A dictionary containing the analysis results or an error.
     """
-    start_time = time.time()
-    logger.info(f"Starting enhanced content analysis for: {title}")
+    logger.info(f"Enhanced Integration: Received analysis request for site '{site_id}', title '{title}', url '{url}'")
+
+    if analyzer is None:
+        logger.error("EnhancedContentAnalyzer failed to initialize. Cannot process request.")
+        # Return error structure consistent with analyzer's error response
+        return {
+                "analysis": {}, "link_suggestions": [], "processing_time": 0,
+                "status": "error", "error": "Analyzer initialization failed"
+            }
 
     try:
-        # We'll use the target URLs from the previous version for now
-        # In production, these would come from a database or the WordPress site
-        # Ideally, this would be dynamically loaded based on site_id
-        
-        # Site-specific configuration
-        target_urls = get_target_urls_for_site(site_id)
-        
-        # Run the enhanced analysis
-        result = enhanced_analyzer.analyze_content(
+        # Call the analyzer's main method, passing all required parameters
+        analysis_result = await analyzer.analyze_content(
             content=content,
             title=title,
-            target_pages=target_urls,
+            site_id=site_id,
             url=url
         )
-        
-        # Format the response
-        processing_time = time.time() - start_time
-        
-        response = {
-            "link_suggestions": result.get("link_suggestions", []),
-            "analysis": result.get("analysis", {}),
-            "processing_time": processing_time,
-            "status": result.get("status", "success")
-        }
-        
-        if "error" in result:
-            response["error"] = result["error"]
-        
-        logger.info(f"Analysis completed in {processing_time:.2f} seconds. Found {len(response['link_suggestions'])} suggestions.")
-        
-        return response
+        logger.info(f"Enhanced Integration: Analysis complete for site '{site_id}', title '{title}'. Status: {analysis_result.get('status')}")
+        return analysis_result
 
     except Exception as e:
-        logger.error(f"Error in enhanced analysis task: {str(e)}")
+        logger.error(f"Exception during enhanced analysis integration for site '{site_id}', title '{title}': {e}", exc_info=True)
+        # Return error structure consistent with analyzer's error response
         return {
-            "link_suggestions": [],
-            "analysis": {},
-            "processing_time": time.time() - start_time,
-            "status": "error",
-            "error": str(e)
-        }
+                "analysis": {}, "link_suggestions": [], "processing_time": 0,
+                "status": "error", "error": f"Internal error during enhanced analysis integration: {str(e)}"
+            }
 
 def get_target_urls_for_site(site_id: Optional[str] = None) -> List[Dict[str, str]]:
     """

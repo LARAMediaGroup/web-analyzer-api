@@ -9,14 +9,46 @@ import os
 import json
 import logging
 import time
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Dict, Any, Optional, Set, Tuple
 from datetime import datetime
 import threading
 import sqlite3
 import hashlib
+import numpy as np
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
 
 # Configure logging
 logger = logging.getLogger("web_analyzer.knowledge_db")
+
+# --- Model Loading ---
+# Load the sentence transformer model globally once when the class is loaded.
+# Choose a model suitable for semantic search (e.g., all-MiniLM-L6-v2 is fast and good)
+# Wrap in a try-except block in case model loading fails on import.
+try:
+    # Define model name (can be made configurable later if needed)
+    MODEL_NAME = 'all-MiniLM-L6-v2'
+    logger.info(f"Loading sentence transformer model: {MODEL_NAME}...")
+    model = SentenceTransformer(MODEL_NAME)
+    logger.info(f"Sentence transformer model '{MODEL_NAME}' loaded successfully.")
+except Exception as e:
+    logger.error(f"CRITICAL: Failed to load sentence transformer model '{MODEL_NAME}'. Embeddings will not be generated. Error: {e}", exc_info=True)
+    model = None # Set model to None if loading fails
+
+# Helper function (can be outside class or static method)
+def _calculate_cosine_similarity(embedding1: np.ndarray, embedding2: np.ndarray) -> float:
+    """Calculates cosine similarity between two numpy embedding vectors."""
+    if embedding1 is None or embedding2 is None or embedding1.ndim == 0 or embedding2.ndim == 0:
+        return 0.0
+    # Reshape to 2D arrays as expected by cosine_similarity
+    if embedding1.ndim == 1: embedding1 = embedding1.reshape(1, -1)
+    if embedding2.ndim == 1: embedding2 = embedding2.reshape(1, -1)
+    try:
+        similarity = cosine_similarity(embedding1, embedding2)[0][0]
+        return float(similarity) # Ensure result is float
+    except Exception as e:
+        logger.warning(f"Could not calculate cosine similarity: {e}")
+        return 0.0
 
 class KnowledgeDatabase:
     """
@@ -25,7 +57,7 @@ class KnowledgeDatabase:
     This database stores analyzed content information including:
     - Content metadata (title, URL, etc.)
     - Extracted entities and topics
-    - Relevance information for linking
+    - Semantic embeddings for relevance matching
     
     The database enables matching between content pieces for suggestion generation.
     """
@@ -35,44 +67,57 @@ class KnowledgeDatabase:
         Initialize the knowledge database.
         
         Args:
-            config_path: Path to the configuration file
+            config_path: Path to the configuration file (relative to project root)
             site_id: Optional site identifier for multi-site support
         """
-        self.config = self._load_config(config_path)
+        logger.info(f"Initializing KnowledgeDatabase for site_id: '{site_id or 'default'}'...")
+        project_root = os.path.join(os.path.dirname(__file__), '..', '..', '..') # Navigate up from src/core/knowledge_db
+        self.config = self._load_config(os.path.join(project_root, config_path))
         self.site_id = site_id or "default"
         
         # Set up database path
         self.db_dir = self.config.get("knowledge_db_dir", "data/knowledge_db")
+        # Ensure db_dir path is absolute or relative to project root
+        if not os.path.isabs(self.db_dir):
+             self.db_dir = os.path.join(project_root, self.db_dir)
+
         os.makedirs(self.db_dir, exist_ok=True)
+        logger.info(f"Knowledge base directory: {self.db_dir}")
         
         # Create site-specific database file
         self.db_path = os.path.join(self.db_dir, f"knowledge_{self.site_id}.db")
+        logger.info(f"Knowledge base file path: {self.db_path}")
         
         # Initialize database
         self._init_database()
         
         # Thread lock for database operations
         self.db_lock = threading.Lock()
+        logger.info(f"KnowledgeDatabase for site_id '{self.site_id}' initialized.")
     
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """Load configuration from JSON file."""
         try:
             if os.path.exists(config_path):
                 with open(config_path, 'r') as f:
+                    logger.info(f"Loading KnowledgeDatabase config from: {config_path}")
                     return json.load(f)
             else:
-                logger.warning(f"Config file {config_path} not found, using defaults")
+                logger.warning(f"KnowledgeDatabase config file {config_path} not found, using defaults.")
+                # Define defaults relevant to this class
                 return {
                     "knowledge_db_dir": "data/knowledge_db",
-                    "max_entries": 1000,
-                    "cleanup_threshold": 0.9,  # Cleanup when 90% full
+                    "max_entries": 10000, # Increased default size
+                    "cleanup_threshold": 0.9,
+                    "embedding_text_field": "title" # Default field to embed ('title' or 'content')
                 }
         except Exception as e:
-            logger.error(f"Error loading config: {str(e)}")
+            logger.error(f"Error loading config from {config_path}: {str(e)}")
             return {
                 "knowledge_db_dir": "data/knowledge_db",
-                "max_entries": 1000,
+                "max_entries": 10000,
                 "cleanup_threshold": 0.9,
+                "embedding_text_field": "title"
             }
     
     def _init_database(self) -> None:
@@ -89,6 +134,7 @@ class KnowledgeDatabase:
                     title TEXT,
                     url TEXT,
                     hash TEXT,
+                    embedding BLOB,
                     created_at TIMESTAMP,
                     updated_at TIMESTAMP
                 )
@@ -131,23 +177,28 @@ class KnowledgeDatabase:
             logger.error(f"Error initializing database: {str(e)}")
             raise
     
-    def add_content(self, content_data: Dict[str, Any]) -> bool:
+    def add_content(self, content_data: Dict[str, Any], embedding_bytes: Optional[bytes] = None) -> bool:
         """
-        Add or update content in the knowledge database.
+        Add or update content in the knowledge database, optionally including its embedding.
         
         Args:
             content_data: Dictionary with content data including:
                 - id: Content identifier
                 - title: Content title
                 - url: Content URL
+                - content: Full content text (optional, used if embedding_text_field='content')
                 - entities: Dictionary of entity lists by type
                 - topics: Dictionary of topic data
+            embedding_bytes: Optional pre-generated embedding for the content (as bytes).
                 
         Returns:
             bool: Success status
         """
         try:
             # Generate a unique hash for the content
+            # Note: Hash currently based on title, entities, topics.
+            # If only 'content' changes and embedding_text_field='content',
+            # hash might not change, but embedding should still be updated.
             content_hash = self._generate_content_hash(content_data)
             
             with self.db_lock, sqlite3.connect(self.db_path) as conn:
@@ -162,29 +213,40 @@ class KnowledgeDatabase:
                 cursor.execute("SELECT hash FROM content WHERE content_id = ?", (content_id,))
                 result = cursor.fetchone()
                 
+                embedding_updated = False # Flag to track if embedding was potentially updated
+                
                 if result:
                     existing_hash = result[0]
-                    # If hash is the same, skip update
-                    if existing_hash == content_hash:
-                        logger.debug(f"Content {content_id} already exists with same hash")
-                        return True
+                    # If hash is the same, BUT we have new embedding bytes, still proceed to update embedding
+                    if existing_hash == content_hash and embedding_bytes is None:
+                         # If hash matches AND no new embedding provided, skip everything
+                         logger.debug(f"Content {content_id} already exists with same hash and no new embedding provided. Skipping.")
+                         return True # Indicate success (already up-to-date state)
                     
-                    # Update content record
+                    # Update content record - include embedding
+                    logger.debug(f"Updating content record for {content_id}. Hash changed: {existing_hash != content_hash}, Embedding provided: {embedding_bytes is not None}")
                     cursor.execute(
-                        "UPDATE content SET title = ?, url = ?, hash = ?, updated_at = ? WHERE content_id = ?",
-                        (title, url, content_hash, now, content_id)
+                        """UPDATE content 
+                           SET title = ?, url = ?, hash = ?, embedding = ?, updated_at = ? 
+                           WHERE content_id = ?""",
+                        (title, url, content_hash, embedding_bytes, now, content_id)
                     )
+                    embedding_updated = True # Embedding is updated/set here
                     
-                    # Delete existing entity and topic data
+                    # Delete existing entity and topic data before re-inserting
                     cursor.execute("DELETE FROM entities WHERE content_id = ?", (content_id,))
                     cursor.execute("DELETE FROM topics WHERE content_id = ?", (content_id,))
                     
                 else:
-                    # Insert new content record
+                    # Insert new content record - include embedding
+                    logger.debug(f"Inserting new content record for {content_id}. Embedding provided: {embedding_bytes is not None}")
                     cursor.execute(
-                        "INSERT INTO content (content_id, title, url, hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                        (content_id, title, url, content_hash, now, now)
+                        """INSERT INTO content 
+                           (content_id, title, url, hash, embedding, created_at, updated_at) 
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (content_id, title, url, content_hash, embedding_bytes, now, now)
                     )
+                    embedding_updated = True # Embedding is inserted here
                 
                 # Add entity data
                 entities = content_data.get("entities", {})
@@ -221,15 +283,19 @@ class KnowledgeDatabase:
                         )
                 
                 conn.commit()
-                logger.info(f"Content {content_id} added to knowledge database")
-                
+                if embedding_updated:
+                    logger.info(f"Content {content_id} added/updated in knowledge database (including embedding).")
+                else:
+                     # This case should now only happen if hash matched AND embedding_bytes was None
+                     logger.info(f"Content {content_id} metadata/entities/topics added/updated in knowledge database (embedding not updated).")
+
                 # Check if cleanup is needed
                 self._check_cleanup_needed(cursor)
                 
                 return True
         
         except Exception as e:
-            logger.error(f"Error adding content to knowledge database: {str(e)}")
+            logger.error(f"Error adding/updating content {content_data.get('id', 'N/A')} to knowledge database: {str(e)}", exc_info=True)
             return False
     
     def remove_content(self, content_id: str) -> bool:
@@ -481,7 +547,7 @@ class KnowledgeDatabase:
             content_count = cursor.fetchone()[0]
             
             # Check if we've exceeded threshold
-            max_entries = self.config.get("max_entries", 1000)
+            max_entries = self.config.get("max_entries", 10000)
             cleanup_threshold = self.config.get("cleanup_threshold", 0.9)
             threshold_count = int(max_entries * cleanup_threshold)
             
@@ -500,7 +566,7 @@ class KnowledgeDatabase:
             content_count = cursor.fetchone()[0]
             
             # Calculate how many to remove
-            max_entries = self.config.get("max_entries", 1000)
+            max_entries = self.config.get("max_entries", 10000)
             target_count = int(max_entries * 0.8)  # Remove enough to get down to 80%
             to_remove = content_count - target_count
             
@@ -528,3 +594,159 @@ class KnowledgeDatabase:
         
         except Exception as e:
             logger.error(f"Error performing cleanup: {str(e)}")
+
+    def _generate_embedding(self, text: str) -> Optional[bytes]:
+         """Generates embedding for the given text and returns it as bytes."""
+         if model is None:
+             logger.warning("Sentence transformer model not loaded. Cannot generate embedding.")
+             return None
+         if not text or not isinstance(text, str):
+             logger.warning(f"Cannot generate embedding for invalid text: {text}")
+             return None
+
+         try:
+             logger.debug(f"Generating embedding for text snippet: '{text[:100]}...'")
+             # Ensure model expects a list of sentences or single sentence
+             embedding_vector = model.encode(text, convert_to_numpy=True)
+             # Convert numpy array to bytes for storing in BLOB
+             embedding_bytes = embedding_vector.tobytes()
+             logger.debug(f"Generated embedding of size {len(embedding_bytes)} bytes.")
+             return embedding_bytes
+         except Exception as e:
+             logger.error(f"Error generating embedding for text '{text[:100]}...': {e}", exc_info=True)
+             return None
+
+    def get_all_content_with_embeddings(self, exclude_url: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieve all content entries that have embeddings stored.
+
+        Args:
+            exclude_url (Optional[str]): A URL to exclude from the results (e.g., the current post).
+
+        Returns:
+            List[Dict[str, Any]]: A list of dictionaries, each containing:
+                - content_id (str)
+                - title (str)
+                - url (str)
+                - embedding (np.ndarray): Deserialized embedding vector.
+        """
+        logger.debug(f"Attempting to retrieve all content with embeddings, excluding URL: {exclude_url}")
+        results = []
+        try:
+            with self.db_lock, sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row # Access columns by name
+                cursor = conn.cursor()
+
+                # Base query selects content with non-null and non-empty embeddings
+                # Note: SQLite doesn't have a reliable way to check blob *length* directly in WHERE
+                # So we check for non-null and filter empty ones during processing.
+                query = "SELECT content_id, title, url, embedding FROM content WHERE embedding IS NOT NULL"
+                params = []
+
+                if exclude_url:
+                    query += " AND url != ?"
+                    params.append(exclude_url)
+
+                cursor.execute(query, params)
+
+                rows = cursor.fetchall()
+                logger.debug(f"Retrieved {len(rows)} candidate rows with embeddings from DB.")
+
+                for row in rows:
+                    embedding_blob = row["embedding"]
+                    if not embedding_blob: # Skip if blob is somehow empty despite NOT NULL check
+                         logger.warning(f"Skipping content_id {row['content_id']} due to empty embedding blob.")
+                         continue
+
+                    try:
+                        # Deserialize blob back to NumPy array
+                        # Assuming dtype=float32 based on common sentence-transformer usage
+                        # This dtype might need adjustment if the saving process uses something else
+                        # TODO: Determine the exact dtype used during embedding generation/saving
+                        embedding_vector = np.frombuffer(embedding_blob, dtype=np.float32)
+
+                        results.append({
+                            "content_id": row["content_id"],
+                            "title": row["title"],
+                            "url": row["url"],
+                            "embedding": embedding_vector
+                        })
+                    except Exception as deser_error:
+                         # Log error during deserialization but continue with others
+                         logger.error(f"Failed to deserialize embedding for content_id {row['content_id']}: {deser_error}", exc_info=True)
+
+            logger.info(f"Successfully retrieved and deserialized {len(results)} content items with embeddings.")
+            return results
+
+        except sqlite3.Error as db_error:
+            logger.error(f"Database error retrieving content with embeddings: {db_error}", exc_info=True)
+            return [] # Return empty list on DB error
+        except Exception as e:
+            logger.error(f"Unexpected error retrieving content with embeddings: {e}", exc_info=True)
+            return [] # Return empty list on other errors
+
+    # --- NEW METHOD (Option 1: Simple Semantic Search) ---
+    def find_related_content_semantic(
+        self,
+        query_embedding: np.ndarray,
+        exclude_url: Optional[str] = None,
+        top_n: int = 10,
+        min_similarity: float = 0.5 # Configurable threshold
+    ) -> List[Dict[str, Any]]:
+        """
+        Find related content using semantic similarity (cosine similarity).
+
+        Args:
+            query_embedding (np.ndarray): The embedding of the content to find matches for.
+            exclude_url (Optional[str]): A URL to exclude from the results.
+            top_n (int): The maximum number of related items to return.
+            min_similarity (float): The minimum cosine similarity score to consider an item related.
+
+        Returns:
+            List[Dict[str, Any]]: A list of related content items, sorted by similarity, including:
+                - content_id (str)
+                - title (str)
+                - url (str)
+                - similarity (float)
+        """
+        logger.debug(f"Starting semantic search: top_n={top_n}, min_similarity={min_similarity}, excluding_url='{exclude_url}'")
+
+        if query_embedding is None or query_embedding.size == 0:
+             logger.warning("Cannot perform semantic search with an empty query embedding.")
+             return []
+
+        # 1. Retrieve all candidates with embeddings
+        all_candidates = self.get_all_content_with_embeddings(exclude_url=exclude_url)
+        if not all_candidates:
+            logger.info("No candidate embeddings found in KB for semantic search.")
+            return []
+
+        logger.debug(f"Comparing query embedding against {len(all_candidates)} candidates from KB.")
+
+        # 2. Calculate similarity scores
+        results_with_scores = []
+        for candidate in all_candidates:
+            candidate_embedding = candidate.get("embedding")
+            if candidate_embedding is not None and candidate_embedding.size > 0:
+                # Use the helper function for calculation
+                similarity = _calculate_cosine_similarity(query_embedding, candidate_embedding)
+
+                if similarity >= min_similarity:
+                    results_with_scores.append({
+                        "content_id": candidate["content_id"],
+                        "title": candidate["title"],
+                        "url": candidate["url"],
+                        "similarity": similarity
+                    })
+            else:
+                logger.warning(f"Candidate {candidate.get('content_id')} missing valid embedding, skipping comparison.")
+
+
+        # 3. Sort by similarity (highest first)
+        results_with_scores.sort(key=lambda x: x["similarity"], reverse=True)
+
+        # 4. Return top N results
+        final_results = results_with_scores[:top_n]
+        logger.info(f"Semantic search found {len(final_results)} related items above threshold {min_similarity} (returning top {top_n}).")
+        return final_results
+    # --- END NEW METHOD ---

@@ -17,216 +17,216 @@ import nltk
 from nltk.tokenize import word_tokenize
 from nltk.tag import pos_tag
 from nltk.chunk import ne_chunk
+import yaml
+import os
+from datetime import datetime
 
 # Configure logging
 logger = logging.getLogger("web_analyzer.fashion_entity_analyzer")
+
+# Define config directory relative to this file's location
+CONFIG_DIR = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'config')
 
 class FashionEntityAnalyzer:
     """
     Analyzer for fashion-specific entities in content.
     
     This class extracts fashion-specific entities from text using a combination
-    of pattern matching, NLP techniques, and domain-specific knowledge.
+    of pattern matching, NLP techniques, and domain-specific knowledge loaded
+    from configuration files.
     """
     
-    def __init__(self):
+    def __init__(self, config_dir: str = CONFIG_DIR):
         """Initialize the analyzer with fashion-specific entity patterns."""
-        # Load entity dictionaries
-        self.clothing_items = self._load_clothing_items()
-        self.fashion_brands = self._load_fashion_brands()
-        self.style_categories = self._load_style_categories()
-        self.materials = self._load_materials()
-        self.body_shapes = self._load_body_shapes()
-        self.colours = self._load_colours()
-        self.seasonal_terms = self._load_seasonal_terms()
+        self.config_dir = config_dir
+        logger.info(f"Initializing FashionEntityAnalyzer...")
+        logger.info(f"Loading fashion entities from: {self.config_dir}")
+        
+        # Load entity dictionaries from YAML files
+        self.clothing_items = self._load_terms_from_yaml("clothing_items.yaml")
+        self.fashion_brands = self._load_terms_from_yaml("fashion_brands.yaml")
+        self.style_categories = self._load_terms_from_yaml("style_categories.yaml")
+        self.materials = self._load_terms_from_yaml("materials.yaml")
+        self.body_shapes = self._load_terms_from_yaml("body_shapes.yaml")
+        self.colours = self._load_terms_from_yaml("colours.yaml")
+        self.seasonal_terms = self._load_terms_from_yaml("seasonal_terms.yaml")
         
         # Compile regex patterns
-        self.clothing_pattern = self._compile_pattern(self.clothing_items)
-        self.brand_pattern = self._compile_pattern(self.fashion_brands)
-        self.style_pattern = self._compile_pattern(self.style_categories)
-        self.material_pattern = self._compile_pattern(self.materials)
-        self.body_shape_pattern = self._compile_pattern(self.body_shapes)
-        self.colour_pattern = self._compile_pattern(self.colours)
-        self.seasonal_pattern = self._compile_pattern(self.seasonal_terms)
+        self.clothing_pattern = self._compile_pattern(self.clothing_items, "clothing_items")
+        self.brand_pattern = self._compile_pattern(self.fashion_brands, "fashion_brands")
+        self.style_pattern = self._compile_pattern(self.style_categories, "style_categories")
+        self.material_pattern = self._compile_pattern(self.materials, "materials")
+        self.body_shape_pattern = self._compile_pattern(self.body_shapes, "body_shapes")
+        self.colour_pattern = self._compile_pattern(self.colours, "colours")
+        self.seasonal_pattern = self._compile_pattern(self.seasonal_terms, "seasonal_terms")
+        logger.info("FashionEntityAnalyzer initialized successfully.")
     
-    def _load_clothing_items(self) -> Set[str]:
-        """Load dictionary of clothing items."""
-        return {
-            # Tops
-            "oxford shirt", "dress shirt", "button-down shirt", "polo shirt", "t-shirt", "tee",
-            "henley shirt", "sweater", "jumper", "cardigan", "pullover", "sweatshirt", "hoodie",
-            "tank top", "vest", "waistcoat", "navy blazer", "sport coat", "suit jacket", "dinner jacket",
-            "double breasted suit jacket", "single breasted suit jacket", "tweed jacket", "harrington jacket",
-            "field jacket", "safari jacket", "gilet", "puffer vest",
-            
-            # Bottoms
-            "khaki trousers", "dress trousers", "chinos", "preppy chinos", "jeans", "denim jeans",
-            "corduroy trousers", "joggers", "sweatpants", "shorts", "bermuda shorts", "swim shorts",
-            "formal trousers", "casual trousers", "pleated trousers", "flat front trousers",
-            
-            # Outerwear
-            "overcoat", "topcoat", "trench coat", "raincoat", "mac", "parka", "anorak",
-            "windbreaker", "peacoat", "duffle coat", "leather jacket", "bomber jacket", 
-            "harrington jacket", "field jacket", "safari jacket", "gilet", "puffer vest",
-            
-            # Footwear
-            "oxford shoes", "derby shoes", "brogues", "penny loafers", "boat shoes",
-            "deck shoes", "driving shoes", "monk strap shoes", "chelsea boots", "desert boots",
-            "chukka boots", "wingtip shoes", "moccasins", "sneakers", "trainers", "sandals",
-            "espadrilles", "slippers", "dress shoes", "formal shoes", "casual shoes",
-            
-            # Accessories
-            "necktie", "tie", "bow tie", "pocket square", "cufflinks", "tie bar", "tie clip",
-            "belt", "suspenders", "braces", "watch", "scarf", "gloves", "hat", "cap", "beanie",
-            "sunglasses", "wallet", "briefcase", "messenger bag", "backpack", "umbrella", "socks",
-            
-            # Full outfits
-            "suit", "tuxedo", "dinner suit", "three-piece suit", "two-piece suit", "ensemble",
-            "outfit", "look", "attire", "formal attire", "business attire", "casual attire"
-        }
+    def _load_terms_from_yaml(self, filename: str) -> Set[str]:
+        """Load a set of terms from a YAML file in the config directory."""
+        filepath = os.path.join(self.config_dir, filename)
+        logger.debug(f"Attempting to load terms from: {filepath}")
+        try:
+            with open(filepath, 'r') as f:
+                terms = yaml.safe_load(f)
+                if isinstance(terms, list):
+                    # Convert to lowercase set for efficient lookup and case-insensitivity
+                    # Filter out None or empty strings resulting from bad YAML
+                    term_set = {str(term).lower() for term in terms if term and isinstance(term, (str, int, float))}
+                    logger.info(f"Successfully loaded {len(term_set)} terms from {filename}")
+                    return term_set
+                else:
+                    logger.warning(f"Expected a list in {filename}, but got {type(terms)}. Returning empty set.")
+                    return set()
+        except FileNotFoundError:
+            logger.error(f"Configuration file not found: {filepath}. Returning empty set.")
+            return set()
+        except yaml.YAMLError as e:
+            logger.error(f"Error parsing YAML file {filepath}: {e}. Returning empty set.")
+            return set()
+        except Exception as e:
+            logger.error(f"Unexpected error loading {filepath}: {e}. Returning empty set.")
+            return set()
     
-    def _load_fashion_brands(self) -> Set[str]:
-        """Load dictionary of fashion brands."""
-        return {
-            # Luxury/high-end brands
-            "ralph lauren", "polo ralph lauren", "brooks brothers", "j.press", "drakes",
-            "barbour", "burberry", "lacoste", "hugo boss", "vineyard vines", "j.crew",
-            "sperry", "loro piana", "brunello cucinelli", "zegna", "tom ford", "gucci",
-            "prada", "louis vuitton", "hermes", "armani", "versace", "charles tyrwhitt",
-            "thomas pink", "hackett london", "turnbull & asser", "brioni",
-            
-            # Old money associated brands
-            "lululemon", "l.l.bean", "bean boots", "duck boots", "patagonia", "north face",
-            "orvis", "filson", "pendleton", "woolrich", "hunter boots", "belstaff", 
-            "gant", "johnston & murphy", "allen edmonds", "tricker's", "crockett & jones",
-            "church's", "alden", "new balance", "keds", "sebago", "sperrys", "quoddy",
-            
-            # Fast fashion brands
-            "uniqlo", "h&m", "zara", "massimo dutti", "mango", "topman", "cos", "arket",
-            "gap", "banana republic", "old navy", "express", "asos", "everlane", "reiss",
-            "sandro", "maje", "club monaco", "suitsupply"
-        }
-    
-    def _load_style_categories(self) -> Set[str]:
-        """Load dictionary of style categories."""
-        return {
-            # Traditional/conservative styles
-            "old money style", "old money fashion", "ivy league style", "preppy style",
-            "trad style", "traditional style", "conservative style", "classic style",
-            "heritage style", "vintage style", "retro style", "smart style", "formal style",
-            "business casual", "casual style", "smart casual", "business formal",
-            "black tie", "white tie", "cocktail attire", "evening wear",
-            
-            # Regional styles
-            "american traditional", "british style", "italian style", "french style",
-            "scandinavian style", "japanese style", "korean style", "nautical style",
-            "coastal style", "country style", "rural style", "urban style",
-            "ivy style", "british countryside", "english country", "scottish highland",
-            "italian sprezzatura", "parisian style", "riviera style", "mediterranean style",
-            "alpine style", "cape cod style", "nantucket style", "hamptons style",
-            "upper east side", "roppongi hills", "sloane ranger", "kensington style",
-            "chelsea style", "mayfair style",
-            
-            # Contemporary styles
-            "minimalist style", "capsule wardrobe", "streetwear", "athleisure",
-            "techwear", "workwear", "utility style", "avant-garde", "contemporary style",
-            "modern style", "clean-cut style", "smart style", "sharp style",
-            "polished style", "refined style", "new money style", "luxury style",
-            "high-end style", "punk style", "goth style", "boho chic", "bcbg style"
-        }
-    
-    def _load_materials(self) -> Set[str]:
-        """Load dictionary of clothing materials."""
-        return {
-            # Natural fibers
-            "cotton", "pima cotton", "sea island cotton", "egyptian cotton", "supima",
-            "wool", "merino wool", "lambswool", "shetland wool", "cashmere", "tweed",
-            "houndstooth", "herringbone", "linen", "flax", "silk", "mohair", "alpaca",
-            "camel hair", "vicuña", "leather", "suede", "nubuck", "calfskin", "cordovan",
-            "sheepskin", "deerskin", "pigskin", "sharkskin", "alligator", "crocodile", 
-            
-            # Synthetic and mixed fibers
-            "polyester", "nylon", "acrylic", "rayon", "viscose", "tencel", "lycra", 
-            "spandex", "elastane", "gore-tex", "performance fabric", "tech fabric",
-            "microfiber", "fleece", "down", "goose down", "duck down", "synthetic down",
-            
-            # Weaves and treatments
-            "oxford cloth", "broadcloth", "poplin", "twill", "pinpoint", "chambray",
-            "denim", "seersucker", "corduroy", "madras", "flannel", "gabardine", "canvas",
-            "velvet", "velour", "waxed", "weatherproof", "waterproof", "breathable"
-        }
-    
-    def _load_body_shapes(self) -> Set[str]:
-        """Load dictionary of body shapes."""
-        return {
-            # Male body shapes
-            "triangle body shape", "triangle shape", "pear shape", "inverted triangle", 
-            "inverted triangle body shape", "v-shape", "athletic", "athletic build",
-            "rectangle", "rectangle body shape", "straight", "oval", "oval body shape",
-            "round", "apple shape", "apple body shape", "trapezoid", "trapezoid body shape",
-            
-            # Body features
-            "broad shoulders", "narrow shoulders", "muscular chest", "muscular build",
-            "slim waist", "narrow waist", "wide waist", "full waist", "slim hips",
-            "narrow hips", "wide hips", "full hips", "short legs", "long legs",
-            "slim legs", "muscular legs", "long torso", "short torso"
-        }
-    
-    def _load_colours(self) -> Set[str]:
-        """Load dictionary of colours and colour palettes."""
-        return {
-            # Basic colours
-            "navy", "navy blue", "blue", "light blue", "sky blue", "cobalt blue", "royal blue",
-            "white", "off-white", "cream", "ivory", "eggshell", "grey", "gray", "charcoal", 
-            "silver", "black", "red", "burgundy", "maroon", "green", "olive", "forest green",
-            "khaki", "beige", "tan", "brown", "chocolate brown", "camel", "pink", "purple",
-            "lavender", "orange", "coral", "yellow", "gold", "mustard",
-            
-            # Seasonal colour analysis terms
-            "spring colours", "summer colours", "autumn colours", "winter colours", 
-            "warm colours", "cool colours", "clear colours", "muted colours", "deep colours",
-            "light colours", "dark colours", "bright colours", "soft colours", "neutral colours",
-            "earthy colours", "pastel colours", "jewel tones", "monochrome", "tonal",
-            
-            # Specific seasonal palettes
-            "true spring", "light spring", "bright spring", "warm spring", 
-            "true summer", "light summer", "soft summer", "cool summer",
-            "true autumn", "soft autumn", "deep autumn", "warm autumn",
-            "true winter", "deep winter", "clear winter", "cool winter",
-            
-            # Old money colours
-            "old money colours", "heritage colours", "traditional colours", "preppy colours",
-            "ivy league colours", "collegiate colours", "nautical colours"
-        }
-    
-    def _load_seasonal_terms(self) -> Set[str]:
-        """Load dictionary of seasonal references."""
-        return {
-            # Seasons
-            "spring", "summer", "autumn", "fall", "winter", "seasonal", "year-round",
-            "trans-seasonal", "resort", "vacation", "holiday", 
-            
-            # Weather conditions
-            "warm weather", "cold weather", "hot weather", "cool weather", "rainy", 
-            "wet weather", "sunny", "windy", "humid", "dry", "temperate", 
-            
-            # Seasonal activities
-            "beach", "coastal", "skiing", "winter sports", "summer sports", "outdoor",
-            "indoor", "layering", "temperature regulation", "weather-appropriate"
-        }
-    
-    def _compile_pattern(self, terms: Set[str]) -> re.Pattern:
+    def _compile_pattern(self, terms: Set[str], category_name: str) -> Optional[re.Pattern]:
         """Compile regex pattern from a set of terms."""
+        if not terms:
+            logger.warning(f"Cannot compile pattern for '{category_name}': set of terms is empty.")
+            return None
         # Sort by length (longest first) to ensure we match the longest terms
-        sorted_terms = sorted(terms, key=len, reverse=True)
+        # Filter out any potential empty strings just in case
+        sorted_terms = sorted([term for term in terms if term], key=len, reverse=True)
+        if not sorted_terms:
+            logger.warning(f"Cannot compile pattern for '{category_name}': term set contains only empty strings after filtering.")
+            return None
         # Escape special regex characters and join with OR
         pattern_string = "|".join(re.escape(term) for term in sorted_terms)
         # Compile pattern with word boundaries and case insensitivity
-        return re.compile(r'\b(' + pattern_string + r')\b', re.IGNORECASE)
+        try:
+            # Added word boundaries \\b for more precise matching
+            compiled_pattern = re.compile(r'\b(' + pattern_string + r')\b', re.IGNORECASE)
+            logger.debug(f"Successfully compiled regex pattern for '{category_name}'.")
+            return compiled_pattern
+        except re.error as e:
+            logger.error(f"Regex compilation error for '{category_name}': {e}")
+            return None # Return None if compilation fails
+    
+    def _find_matches(self, pattern: Optional[re.Pattern], text: str) -> List[str]:
+        """Find unique matches for a compiled regex pattern in text."""
+        if pattern is None:
+            # logger.debug("Skipping match finding due to None pattern.") # Maybe too verbose
+            return []
+        if not text: # Added check for empty text
+            return []
+        try:
+            # Find all matches and convert to lowercase to avoid duplicates like "Suit" and "suit"
+            # Use a set for efficient uniqueness check
+            matches = {match.group(1).lower() for match in pattern.finditer(text)}
+            return list(matches)
+        except Exception as e:
+            # Log unexpected errors during regex matching
+            logger.error(f"Error during regex matching: {e}")
+            return []
+    
+    def analyze_content(self, content: str, title: str = "") -> Dict[str, Any]:
+        """
+        Analyze content for fashion entities and identify the primary theme.
+        """
+        logger.info(f"Starting entity analysis for title: '{title}'")
+        start_time = datetime.now() # For timing
+        
+        # Basic validation
+        if not content and not title:
+             logger.warning("Entity analysis skipped: Both content and title are empty.")
+             return {"entities": {}, "primary_theme": None}
+
+        combined_text = (title.lower() if title else "") + " " + (content.lower() if content else "")
+        
+        entities = {
+            "clothing_items": self._find_matches(self.clothing_pattern, combined_text),
+            "brands": self._find_matches(self.brand_pattern, combined_text),
+            "styles": self._find_matches(self.style_pattern, combined_text),
+            "materials": self._find_matches(self.material_pattern, combined_text),
+            "body_shapes": self._find_matches(self.body_shape_pattern, combined_text),
+            "colours": self._find_matches(self.colour_pattern, combined_text),
+            "seasonal": self._find_matches(self.seasonal_pattern, combined_text)
+        }
+        # Log counts for each category
+        for category, items in entities.items():
+            if items: # Only log if entities were found
+                logger.debug(f"Found {len(items)} entities for '{category}': {items[:5]}...") # Log first few found
+
+        # Identify primary theme based on dominant entity type (simple heuristic)
+        primary_theme = self._determine_primary_theme(entities, title)
+        logger.info(f"Determined primary theme: '{primary_theme}'")
+
+        result = {
+            "entities": entities,
+            "primary_theme": primary_theme
+        }
+        duration = (datetime.now() - start_time).total_seconds()
+        logger.info(f"Entity analysis completed in {duration:.3f} seconds for title: '{title}'")
+        return result
+    
+    def _determine_primary_theme(self, entities: Dict[str, List[str]], title: str) -> Optional[str]:
+        """Determine primary theme based on entity counts and title clues."""
+        logger.debug(f"Determining primary theme for title: '{title}'")
+        # Priority: Style category mentioned in title
+        title_lower = title.lower() if title else ""
+        if title_lower: # Check if title exists
+             for style in entities.get("styles", []):
+                  # Check if the exact style phrase is in the title
+                  # This requires the original case potentially, let's use the loaded set
+                  # Ensure self.style_categories is not None before iterating
+                  if self.style_categories and any(s_case.lower() == style and s_case.lower() in title_lower for s_case in self.style_categories):
+                      logger.debug(f"Primary theme identified from title (Style): {style}")
+                      return style
+
+             # Priority: Clothing item mentioned in title
+             for item in entities.get("clothing_items", []):
+                 # Ensure self.clothing_items is not None
+                 if self.clothing_items and any(i_case.lower() == item and i_case.lower() in title_lower for i_case in self.clothing_items):
+                      logger.debug(f"Primary theme identified from title (Clothing): {item}")
+                      return item
+
+        # Fallback: Most frequent category (excluding colours/materials/seasonal)
+        category_counts = {
+            "styles": len(entities.get("styles", [])),
+            "clothing_items": len(entities.get("clothing_items", [])),
+            "brands": len(entities.get("brands", [])),
+            "body_shapes": len(entities.get("body_shapes", []))
+        }
+        
+        # Find category with max count > 0
+        max_count = 0
+        dominant_category = None
+        # Sort categories for deterministic behavior if counts are equal (optional)
+        sorted_categories = sorted(category_counts.keys())
+        for category in sorted_categories:
+            count = category_counts[category]
+            if count > max_count:
+                max_count = count
+                dominant_category = category
+        
+        if dominant_category and entities.get(dominant_category):
+            # Return the most frequent specific term within that dominant category
+            term_counts = {}
+            for term in entities[dominant_category]:
+                # Count occurrences in the original combined text for better frequency measure?
+                # This is simpler for now: count unique terms identified.
+                term_counts[term] = term_counts.get(term, 0) + 1 # Simple count needed here
+            if term_counts: # Check if term_counts is not empty
+                most_frequent_term = max(term_counts, key=term_counts.get)
+                logger.debug(f"Primary theme identified by frequency in content ({dominant_category}): {most_frequent_term}")
+                return most_frequent_term
+            else:
+                 logger.debug(f"Dominant category '{dominant_category}' found, but no specific terms counted.")
+
+        logger.info("Could not determine a primary theme.")
+        return None
     
     def extract_entities(self, text: str) -> Dict[str, List[str]]:
         """
-        Extract fashion entities from text.
+        Extract fashion entities from text. (Consider removing if analyze_content suffices)
         
         Args:
             text (str): The text to analyze
@@ -236,315 +236,27 @@ class FashionEntityAnalyzer:
         """
         # Basic data validation
         if not text or not isinstance(text, str):
+            # Return structure consistent with analyze_content
+            logger.warning("extract_entities called with empty or invalid text.")
             return {
-                "clothing_items": [],
-                "brands": [],
-                "styles": [],
-                "materials": [],
-                "body_shapes": [],
-                "colours": [],
-                "seasonal": []
+                "clothing_items": [], "brands": [], "styles": [], "materials": [],
+                "body_shapes": [], "colours": [], "seasonal": []
             }
         
+        logger.debug(f"Extracting entities from text snippet: {text[:100]}...")
         # Find all matches using regex patterns
-        clothing_matches = self._find_matches(self.clothing_pattern, text)
-        brand_matches = self._find_matches(self.brand_pattern, text)
-        style_matches = self._find_matches(self.style_pattern, text)
-        material_matches = self._find_matches(self.material_pattern, text)
-        body_shape_matches = self._find_matches(self.body_shape_pattern, text)
-        colour_matches = self._find_matches(self.colour_pattern, text)
-        seasonal_matches = self._find_matches(self.seasonal_pattern, text)
-        
-        # Look for compound terms using NLP
-        compound_terms = self._extract_compound_terms(text)
-        
-        # Add compound terms to appropriate categories
-        for term in compound_terms:
-            term_lower = term.lower()
-            
-            # Check if the term contains known entities
-            if any(item in term_lower for item in self.clothing_items):
-                clothing_matches.append(term)
-            elif any(brand in term_lower for brand in self.fashion_brands):
-                brand_matches.append(term)
-            elif any(style in term_lower for style in self.style_categories):
-                style_matches.append(term)
-            elif any(material in term_lower for material in self.materials):
-                material_matches.append(term)
-            elif any(shape in term_lower for shape in self.body_shapes):
-                body_shape_matches.append(term)
-            elif any(colour in term_lower for colour in self.colours):
-                colour_matches.append(term)
-            elif any(season in term_lower for season in self.seasonal_terms):
-                seasonal_matches.append(term)
-        
-        # Return all extracted entities
-        return {
-            "clothing_items": clothing_matches,
-            "brands": brand_matches,
-            "styles": style_matches,
-            "materials": material_matches,
-            "body_shapes": body_shape_matches,
-            "colours": colour_matches,
-            "seasonal": seasonal_matches
+        entities = {
+             "clothing_items": self._find_matches(self.clothing_pattern, text),
+             "brands": self._find_matches(self.brand_pattern, text),
+             "styles": self._find_matches(self.style_pattern, text),
+             "materials": self._find_matches(self.material_pattern, text),
+             "body_shapes": self._find_matches(self.body_shape_pattern, text),
+             "colours": self._find_matches(self.colour_pattern, text),
+             "seasonal": self._find_matches(self.seasonal_pattern, text)
         }
-    
-    def _find_matches(self, pattern: re.Pattern, text: str) -> List[str]:
-        """Find all matches using a regex pattern."""
-        matches = pattern.findall(text)
-        # Remove duplicates while preserving order
-        seen = set()
-        return [x for x in matches if not (x.lower() in seen or seen.add(x.lower()))]
-    
-    def _extract_compound_terms(self, text: str) -> List[str]:
-        """
-        Extract compound fashion terms using NLP techniques.
-        
-        This looks for phrases like "navy blue oxford shirt" that combine
-        colour + material + clothing item.
-        """
-        compound_terms = []
-        
-        try:
-            # Tokenize and tag parts of speech
-            tokens = word_tokenize(text)
-            tagged = pos_tag(tokens)
-            
-            # Look for noun phrases
-            i = 0
-            while i < len(tagged):
-                # If we find an adjective, look for a sequence of adjectives and nouns
-                if tagged[i][1].startswith('JJ'):
-                    start = i
-                    while i < len(tagged) and (tagged[i][1].startswith('JJ') or 
-                                              tagged[i][1].startswith('NN') or 
-                                              tagged[i][1] == 'IN' or  # Include prepositions
-                                              tagged[i][1] == 'CC'):  # Include conjunctions
-                        i += 1
-                    
-                    # If the phrase is at least 2 words and ends with a noun
-                    if i - start >= 2 and tagged[i-1][1].startswith('NN'):
-                        phrase = ' '.join(tokens[start:i])
-                        
-                        # Only include if it contains a fashion-related term
-                        fashion_related = any(
-                            term in phrase.lower() for term_set in 
-                            [self.clothing_items, self.materials, self.fashion_brands, 
-                             self.style_categories, self.colours]
-                            for term in term_set
-                        )
-                        
-                        if fashion_related:
-                            compound_terms.append(phrase)
-                    continue
-                
-                i += 1
-        except Exception as e:
-            logger.warning(f"Error in NLP processing: {str(e)}")
-        
-        return compound_terms
-    
-    def analyze_content(self, content: str, title: str = "") -> Dict[str, Any]:
-        """
-        Analyze content and extract all fashion entities.
-        
-        Args:
-            content (str): The main content to analyze
-            title (str): Optional title to include in analysis
-            
-        Returns:
-            Dict[str, Any]: Comprehensive analysis results
-        """
-        # Combine title and content with higher weight for title
-        full_text = f"{title} {title} {content}" if title else content
-        
-        # Extract entities from the full text
-        entities = self.extract_entities(full_text)
-        
-        # Calculate entity frequencies and importance
-        entity_scores = self._calculate_entity_scores(entities, content, title)
-        
-        # Identify primary and secondary themes
-        themes = self._identify_themes(entities, entity_scores)
-        
-        # Build final analysis result
-        return {
-            "entities": entities,
-            "entity_scores": entity_scores,
-            "themes": themes,
-            "primary_theme": themes[0] if themes else None,
-            "entity_count": sum(len(entities[key]) for key in entities)
-        }
-    
-    def _calculate_entity_scores(
-        self, 
-        entities: Dict[str, List[str]], 
-        content: str, 
-        title: str
-    ) -> Dict[str, Dict[str, float]]:
-        """
-        Calculate importance scores for each entity.
-        
-        Args:
-            entities: Dictionary of extracted entities
-            content: The content text
-            title: The title text
-            
-        Returns:
-            Dictionary of entity types with scores for each entity
-        """
-        entity_scores = {}
-        content_lower = content.lower()
-        title_lower = title.lower()
-        
-        # Calculate scores for each entity type
-        for entity_type, entity_list in entities.items():
-            entity_scores[entity_type] = {}
-            
-            for entity in entity_list:
-                entity_lower = entity.lower()
-                
-                # Base score 
-                score = 1.0
-                
-                # Boost for presence in title
-                if entity_lower in title_lower:
-                    score += 2.0
-                
-                # Boost for frequency in content
-                frequency = content_lower.count(entity_lower)
-                score += min(frequency / 5, 1.0)  # Cap at 1.0 additional points
-                
-                # Boost for entity length (multi-word entities are more specific)
-                word_count = len(entity_lower.split())
-                score += min(word_count / 3, 1.0)  # Cap at 1.0 additional points
-                
-                # Type-specific boosts
-                if entity_type == "styles" and entity_lower in title_lower:
-                    score += 1.0  # Style in title is very important
-                elif entity_type == "body_shapes" and entity_lower in title_lower:
-                    score += 1.5  # Body shape in title is extremely important
-                
-                entity_scores[entity_type][entity] = round(score, 2)
-        
-        return entity_scores
-    
-    def _identify_themes(
-        self, 
-        entities: Dict[str, List[str]], 
-        entity_scores: Dict[str, Dict[str, float]]
-    ) -> List[str]:
-        """
-        Identify primary and secondary themes from the entities.
-        
-        Args:
-            entities: Dictionary of extracted entities
-            entity_scores: Dictionary of entity scores
-            
-        Returns:
-            List of identified themes, in order of importance
-        """
-        # Flatten all entities with their scores into a single list
-        all_entities = []
-        for entity_type, entities_dict in entity_scores.items():
-            for entity, score in entities_dict.items():
-                all_entities.append((entity, entity_type, score))
-        
-        # Sort by score (highest first)
-        all_entities.sort(key=lambda x: x[2], reverse=True)
-        
-        # Take top entities as themes (up to 5)
-        themes = [entity[0] for entity in all_entities[:5]]
-        
-        return themes
-    
-    def _analyze_fashion_entities(self, text: str) -> Dict[str, List[str]]:
-        """Analyze fashion entities with improved context handling."""
-        # Initialize results
-        results = {
-            "clothing_items": [],
-            "brands": [],
-            "styles": [],
-            "materials": [],
-            "body_shapes": [],
-            "colours": [],
-            "seasonal": []
-        }
-        
-        # Find compound terms and their relationships
-        compound_patterns = {
-            "clothing_items": [
-                r'\b(?:navy|khaki|oxford)\s+(?:blazer|trousers|shirt|suit)\b',
-                r'\b(?:penny|cable-knit)\s+(?:loafers|sweaters)\b',
-                r'\b(?:well-tailored|double-breasted)\s+(?:pieces|suit)\b'
-            ],
-            "styles": [
-                r'\b(?:old money|ivy league|prep school)\s+(?:fashion|style)\b',
-                r'\b(?:timeless|classic|luxury|understated)\s+(?:elegance|style|fashion)\b'
-            ],
-            "colours": [
-                r'\b(?:navy|khaki)\s+(?:blazer|trousers|suit)\b'
-            ]
-        }
-        
-        # Extract compound terms
-        for category, patterns in compound_patterns.items():
-            for pattern in patterns:
-                matches = re.finditer(pattern, text, re.IGNORECASE)
-                for match in matches:
-                    term = match.group()
-                    if category == "colours":
-                        # For colors, extract just the color name
-                        color = term.split()[0]
-                        if color not in results["colours"]:
-                            results["colours"].append(color)
-                    else:
-                        # For other categories, add the full compound term
-                        if term not in results[category]:
-                            results[category].append(term)
-        
-        # Look for context around each compound term
-        for category, terms in results.items():
-            if category in ["clothing_items", "styles"]:
-                for term in terms:
-                    context = self._get_context_around_term(text, term)
-                    if context:
-                        # Add any additional attributes found in context
-                        self._extract_attributes_from_context(context, results)
-        
-        return results
-    
-    def _get_context_around_term(self, text: str, term: str, window: int = 5) -> Optional[str]:
-        """Get context around a specific term."""
-        words = text.split()
-        try:
-            idx = words.index(term.split()[0])
-            start = max(0, idx - window)
-            end = min(len(words), idx + len(term.split()) + window)
-            return " ".join(words[start:end])
-        except ValueError:
-            return None
-    
-    def _extract_attributes_from_context(self, context: str, results: Dict[str, List[str]]) -> None:
-        """Extract additional attributes from context around a term."""
-        # Look for material attributes
-        material_patterns = [
-            r'\b(?:cable-knit|wool|cotton|silk|linen)\b'
-        ]
-        for pattern in material_patterns:
-            matches = re.finditer(pattern, context, re.IGNORECASE)
-            for match in matches:
-                material = match.group()
-                if material not in results["materials"]:
-                    results["materials"].append(material)
-        
-        # Look for quality attributes
-        quality_patterns = [
-            r'\b(?:well-tailored|quality|luxury|timeless)\b'
-        ]
-        for pattern in quality_patterns:
-            matches = re.finditer(pattern, context, re.IGNORECASE)
-            for match in matches:
-                quality = match.group()
-                if quality not in results["materials"]:  # Store quality attributes in materials for now
-                    results["materials"].append(quality)
+        # Log counts here as well if this method is used independently
+        for category, items in entities.items():
+            if items:
+                logger.debug(f"[extract_entities] Found {len(items)} for '{category}': {items[:5]}...")
+
+        return entities

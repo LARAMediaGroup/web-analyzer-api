@@ -94,7 +94,6 @@ class BulkContentProcessor:
     async def process_content_items(
         self,
         content_items: List[Dict[str, Any]],
-        target_pages: List[Dict[str, str]],
         site_id: Optional[str] = None,
         batch_size: Optional[int] = None,
         knowledge_building_mode: bool = False
@@ -104,7 +103,6 @@ class BulkContentProcessor:
         
         Args:
             content_items: List of content items to process
-            target_pages: List of target pages for links
             site_id: Optional site identifier
             batch_size: Optional batch size (defaults to config value)
             knowledge_building_mode: Whether to build knowledge database without suggestions
@@ -160,7 +158,12 @@ class BulkContentProcessor:
             
             # Process batch with thread pool
             try:
-                batch_results = await self._process_batch(current_batch, target_pages, site_id, batch_start, total_items)
+                batch_results = await self._process_batch(
+                    current_batch,
+                    site_id,
+                    batch_start,
+                    total_items
+                )
                 results.extend(batch_results)
                 
                 # Update stats
@@ -197,7 +200,6 @@ class BulkContentProcessor:
     async def _process_batch(
         self,
         batch_items: List[Dict[str, Any]],
-        target_pages: List[Dict[str, str]],
         site_id: Optional[str] = None,
         batch_start: int = 0,
         total_items: int = 0
@@ -207,7 +209,6 @@ class BulkContentProcessor:
         
         Args:
             batch_items: List of items in the current batch
-            target_pages: List of target pages for links
             site_id: Optional site identifier
             batch_start: Starting index of the batch in the overall list
             total_items: Total number of items
@@ -230,8 +231,7 @@ class BulkContentProcessor:
                 future = loop.run_in_executor(
                     executor, 
                     self._process_single_item,
-                    item, 
-                    target_pages, 
+                    item,
                     site_id,
                     overall_index,
                     total_items
@@ -255,7 +255,6 @@ class BulkContentProcessor:
     def _process_single_item(
         self,
         item: Dict[str, Any],
-        target_pages: List[Dict[str, str]],
         site_id: Optional[str] = None,
         current_index: int = 0,
         total_items: int = 0
@@ -265,7 +264,6 @@ class BulkContentProcessor:
         
         Args:
             item: Content item to process
-            target_pages: List of target pages for links
             site_id: Optional site identifier
             current_index: Index of this item in the overall list
             total_items: Total number of items
@@ -273,12 +271,13 @@ class BulkContentProcessor:
         Returns:
             Dictionary with processing results
         """
+        item_id = item.get("id", str(current_index))
+        logger.debug(f"Starting processing for item_id: {item_id}")
         try:
             # Extract item data
             content = item.get("content", "")
             title = item.get("title", "")
             url = item.get("url", "")
-            item_id = item.get("id", str(current_index))
             
             # Report progress at start
             if self.progress_callback:
@@ -313,111 +312,106 @@ class BulkContentProcessor:
             
             # Process with analyzer
             start_time = time.time()
-            analysis_result = self.analyzer.analyze_content(
-                content=content,
-                title=title,
-                target_pages=target_pages,
-                url=url
-            )
-            processing_time = time.time() - start_time
             
-            # Add to knowledge database
-            if analysis_result.get("status", "") == "success":
-                analysis = analysis_result.get("analysis", {})
-                
-                # Prepare data for knowledge database
-                knowledge_data = {
-                    "id": item_id,
-                    "title": title,
-                    "url": url,
-                    "entities": {
-                        "clothing_items": analysis.get("fashion_entities", {}).get("clothing_items", []),
-                        "styles": analysis.get("fashion_entities", {}).get("styles", []),
-                        "body_shapes": analysis.get("fashion_entities", {}).get("body_shapes", []),
-                        "colours": analysis.get("fashion_entities", {}).get("colours", [])
-                    },
-                    "topics": {
-                        "primary": [analysis.get("primary_topic", "")],
-                        "sub": analysis.get("subtopics", [])
-                    }
-                }
-                
-                # Store in knowledge database
-                db_success = self.knowledge_db.add_content(knowledge_data)
-                
-                if db_success:
-                    logger.debug(f"Added content {item_id} to knowledge database")
-                else:
-                    logger.warning(f"Failed to add content {item_id} to knowledge database")
+            # Perform basic analysis using EnhancedAnalyzer's components
+            analysis_for_kb = self.analyzer._perform_basic_analysis(content, title)
+
+            # Generate embedding
+            embedding_bytes = None
+            embedding_source_text = None
+            embedding_field = self.knowledge_db.config.get("embedding_text_field", "title")
             
-            # In knowledge building mode, don't generate suggestions
-            if self.knowledge_building_mode:
-                link_suggestions = []
+            if embedding_field == "content":
+                embedding_source_text = content
+            elif embedding_field == "title":
+                embedding_source_text = title
             else:
-                # Use knowledge database for finding related content
-                db_content_count = self.knowledge_db.get_content_count()
-                
-                # Only generate suggestions if we have enough content in database
-                min_db_size = self.config.get("initial_db_size", 100)
-                
-                if db_content_count >= min_db_size:
-                    # Extract entities and topics for finding related content
-                    knowledge_data = {
-                        "id": item_id,
-                        "entities": analysis_result.get("analysis", {}).get("fashion_entities", {}),
-                        "topics": {
-                            "primary": [analysis_result.get("analysis", {}).get("primary_topic", "")],
-                            "sub": analysis_result.get("analysis", {}).get("subtopics", [])
-                        }
-                    }
-                    
-                    # Find related content
-                    related_content = self.knowledge_db.find_related_content(
-                        knowledge_data,
-                        max_results=15,
-                        min_relevance=self.config.get("min_relevance", 0.3)
-                    )
-                    
-                    # Use the result from analyzer for now, but in future could
-                    # use the related content to generate better suggestions
-                    link_suggestions = analysis_result.get("link_suggestions", [])
-                    
-                    # Enhance suggestions with related content
-                    if related_content and len(related_content) > 0:
-                        # Merge with existing suggestions based on URL
-                        existing_urls = {s["target_url"] for s in link_suggestions}
-                        
-                        for related in related_content:
-                            if related["url"] not in existing_urls:
-                                # Generate anchor text for this related content
-                                # TODO: Implement better anchor text generation
-                                link_suggestions.append({
-                                    "anchor_text": related["title"],
-                                    "target_url": related["url"],
-                                    "context": "",  # Could extract from content
-                                    "confidence": related["relevance"],
-                                    "paragraph_index": 0,  # Needs specific paragraph
-                                    "relevance": related["relevance"]
-                                })
+                logger.warning(f"Invalid embedding_text_field configured: '{embedding_field}'. Defaulting to title.")
+                embedding_source_text = title
+
+            if embedding_source_text:
+                embedding_bytes = self.knowledge_db._generate_embedding(embedding_source_text)
+                if embedding_bytes:
+                    logger.debug(f"Successfully generated embedding for item {item_id} from field '{embedding_field}'.")
                 else:
-                    link_suggestions = []
-                    logger.info(f"Knowledge database has only {db_content_count} items, need {min_db_size} for suggestions")
+                    logger.warning(f"Failed to generate embedding for item {item_id} from field '{embedding_field}'.")
+            else:
+                logger.warning(f"Source text for embedding ('{embedding_field}') is empty for item {item_id}. Cannot generate embedding.")
+
+            # Prepare data for knowledge database using the basic analysis results
+            knowledge_data = {
+                "id": item_id,
+                "title": title,
+                "url": url,
+                "entities": analysis_for_kb.get("fashion_entities", {}),
+                "topics": {
+                    "primary": [analysis_for_kb.get("primary_topic")] if analysis_for_kb.get("primary_topic") else [],
+                    "sub": analysis_for_kb.get("subtopics", [])
+                }
+            }
             
-            # Prepare result
+            # Store in knowledge database, passing the generated embedding
+            db_success = self.knowledge_db.add_content(knowledge_data, embedding_bytes)
+            
+            if db_success:
+                logger.debug(f"Content/Embedding processed for item {item_id} in knowledge database.")
+            else:
+                logger.warning(f"KB add_content returned False for item {item_id}.")
+
+            # Link suggestion logic
+            link_suggestions = []
+            analysis_result_for_suggestions = None
+
+            if not self.knowledge_building_mode:
+                # Check KB size
+                db_content_count = self.knowledge_db.get_content_count()
+                min_db_size = self.config.get("initial_db_size", 100)
+
+                if db_content_count >= min_db_size:
+                    logger.debug(f"KB size ({db_content_count}) >= min ({min_db_size}). Generating suggestions for item {item_id}.")
+                    # Now call the full enhanced analyzer to get suggestions,
+                    # using the now potentially populated KB with embeddings
+                    try:
+                        # This is the call that actually uses the KB and embeddings for suggestions
+                        analysis_result_for_suggestions = self.analyzer.analyze_content(
+                            content=content,
+                            title=title,
+                            site_id=self.site_id,
+                            url=url
+                        )
+                        if analysis_result_for_suggestions and analysis_result_for_suggestions.get("status") == "success":
+                            link_suggestions = analysis_result_for_suggestions.get("link_suggestions", [])
+                            logger.info(f"Generated {len(link_suggestions)} suggestions for item {item_id}.")
+                        elif analysis_result_for_suggestions:
+                            logger.warning(f"Suggestion generation failed for item {item_id}. Analyzer status: {analysis_result_for_suggestions.get('status')}, Error: {analysis_result_for_suggestions.get('error')}")
+                        else:
+                            logger.warning(f"Suggestion generation returned None for item {item_id}.")
+
+                    except Exception as suggestion_error:
+                        logger.error(f"Error during suggestion generation call for item {item_id}: {suggestion_error}", exc_info=True)
+                else:
+                    logger.info(f"Knowledge database has only {db_content_count} items, need {min_db_size} for suggestions. Skipping suggestion generation for item {item_id}.")
+            else:
+                logger.info(f"Knowledge building mode is ON. Skipping suggestion generation for item {item_id}.")
+
+            # Prepare final result
+            processing_time = time.time() - start_time
+            final_analysis_output = analysis_for_kb
+
             result = {
                 "id": item_id,
                 "title": title,
                 "url": url,
-                "status": analysis_result.get("status", "success"),
+                "status": "success",
                 "link_suggestions": link_suggestions,
-                "analysis": analysis_result.get("analysis", {}),
-                "processing_time": processing_time,
-                "in_knowledge_db": True
+                "analysis": final_analysis_output,
+                "processing_time": round(processing_time, 3),
+                "in_knowledge_db": db_success
             }
-            
-            if "error" in analysis_result:
-                result["error"] = analysis_result["error"]
-            
+
+            if analysis_result_for_suggestions and analysis_result_for_suggestions.get("status") == "error":
+                result["suggestion_error"] = analysis_result_for_suggestions.get("error", "Unknown suggestion error")
+
             # Report progress at end
             if self.progress_callback:
                 self.progress_callback(current_index, total_items, {
@@ -430,16 +424,16 @@ class BulkContentProcessor:
             return result
         
         except Exception as e:
-            logger.error(f"Error processing item {current_index}: {str(e)}")
+            logger.error(f"Unhandled error processing item {item_id}: {str(e)}", exc_info=True)
             traceback.print_exc()
             
             # Prepare error result
             result = {
-                "id": item.get("id", str(current_index)),
+                "id": item_id,
                 "title": item.get("title", ""),
                 "url": item.get("url", ""),
                 "status": "error",
-                "error": str(e),
+                "error": f"Unhandled exception: {str(e)}",
                 "link_suggestions": [],
                 "processing_time": 0
             }
@@ -448,7 +442,7 @@ class BulkContentProcessor:
             if self.progress_callback:
                 self.progress_callback(current_index, total_items, {
                     "status": "error",
-                    "item_id": item.get("id", str(current_index)),
+                    "item_id": item_id,
                     "title": item.get("title", ""),
                     "error": str(e)
                 })

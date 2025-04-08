@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Request, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, status, Request, BackgroundTasks, Path, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -7,7 +7,7 @@ from typing import List, Dict, Any, Optional
 import os
 import json
 import logging
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Import analyzer integrations
 from src.api.analyzer_integration import analyze_content_task
@@ -17,6 +17,9 @@ from src.api.bulk_integration import start_bulk_processing, get_job_status, stop
 # Import authentication and caching
 from src.api.auth import get_site_from_api_key, check_rate_limit
 from src.api.cache import cached
+
+# Import KnowledgeDatabase
+from src.core.knowledge_db.knowledge_database import KnowledgeDatabase
 
 # Configure logging
 logging.basicConfig(
@@ -59,9 +62,9 @@ app.add_middleware(
 
 # Define request/response models
 class ContentAnalysisRequest(BaseModel):
-    content: str
-    title: str
-    url: Optional[str] = None
+    content: str = Field(..., min_length=1, description="The main text content to analyze.")
+    title: str = Field(..., min_length=1, description="The title of the content.")
+    url: Optional[str] = Field(None, description="The canonical URL of the content being analyzed (used to prevent self-links).")
     site_id: Optional[str] = None
 
 class LinkSuggestion(BaseModel):
@@ -343,6 +346,69 @@ async def get_knowledge_stats(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error getting knowledge database stats: {str(e)}"
+        )
+
+# Knowledge Base Management Endpoints
+
+@app.delete(
+    "/api/v1/kb/content/{content_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Knowledge Base"],
+    summary="Remove Content from Knowledge Base",
+    description="Removes a specific content item and its associated data (entities, topics) from the site's knowledge base. Requires API key matching the site.",
+)
+async def remove_kb_content(
+    content_id: str = Path(..., description="The unique identifier of the content to remove (e.g., WordPress Post ID)."),
+    site_info: Dict = Depends(check_rate_limit) # Use the same auth dependency
+):
+    """
+    Deletes content from the Knowledge Base.
+
+    - Requires authentication via API Key.
+    - The `site_id` associated with the API key determines which knowledge base is accessed.
+    - Returns `204 No Content` on successful deletion or if the content was already gone.
+    - Returns `403 Forbidden` if API key is invalid or rate limit exceeded.
+    - Returns `500 Internal Server Error` on database errors.
+    """
+    site_id = site_info["site_id"]
+    logger.info(f"API: Received request to remove content_id '{content_id}' from KB for site '{site_id}'.")
+
+    if not content_id:
+        logger.warning(f"API: Received remove request with empty content_id for site '{site_id}'.")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Content ID cannot be empty."
+        )
+
+    try:
+        # Initialize KnowledgeDatabase for the specific site
+        # Pass the main config path, KB will load its specific settings
+        kb = KnowledgeDatabase(site_id=site_id)
+
+        # Attempt to remove the content
+        success = kb.remove_content(content_id=str(content_id)) # Ensure content_id is string
+
+        if success:
+            logger.info(f"API: Successfully processed removal request for content_id '{content_id}', site '{site_id}'. Content removed.")
+            # Return 204 even if it was already gone, the desired state is achieved.
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+        else:
+            # Log that it wasn't found, but still return 204 as the end state (not present) is met.
+            # If we wanted to differentiate between "deleted now" and "already gone", we could return a different response or body.
+            # For simplicity and idempotency, 204 is often preferred for DELETE.
+            logger.info(f"API: Processed removal request for content_id '{content_id}', site '{site_id}'. Content was not found (already removed or never existed).")
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    except HTTPException as http_exc:
+         # Re-raise HTTPExceptions (like rate limit errors from dependency)
+         raise http_exc
+    except Exception as e:
+        # Log the detailed error
+        logger.error(f"API: Error removing content_id '{content_id}' from KB for site '{site_id}': {str(e)}", exc_info=True)
+        # Return a generic 500 error to the client
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to remove content from knowledge base: {str(e)}"
         )
 
 if __name__ == "__main__":
