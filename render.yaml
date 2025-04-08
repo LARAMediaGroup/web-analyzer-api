@@ -5,7 +5,7 @@ services:
     env: docker
     region: oregon
     plan: starter
-    branch: main
+    branch: master
     numInstances: 1
     healthCheckPath: /health
     envVars:
