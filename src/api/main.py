@@ -3,17 +3,20 @@
 import logging.config
 import os
 from typing import List, Optional
+# --- ADDED IMPORT ---
+from datetime import datetime
+# --- END ADDED IMPORT ---
 
-from fastapi import FastAPI, HTTPException, Depends, Body, BackgroundTasks # Added BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, Body, BackgroundTasks
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 # Import API routers and dependencies
+# Make sure schemas.py exists in the same directory or adjust path if needed
 from src.api import schemas, auth, cache, analyzer_integration, enhanced_integration, bulk_integration
 from src.core.knowledge_db.knowledge_database import KnowledgeDatabase
 
 # Configure logging
-# Ensure logging is configured before importing modules that use logging
 log_config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'logging_config.json')
 if os.path.exists(log_config_path):
     logging.config.fileConfig(log_config_path, disable_existing_loggers=False)
@@ -26,7 +29,7 @@ logger = logging.getLogger("web_analyzer_api")
 app = FastAPI(
     title="Web Content Analyzer API",
     description="API for analyzing web content and suggesting internal links.",
-    version="1.1.0", # Incremented version
+    version="1.1.1", # Incremented version
 )
 
 # Configure CORS (Cross-Origin Resource Sharing)
@@ -58,6 +61,7 @@ async def read_root():
 async def health_check():
     """Check the health of the API."""
     # Basic check, could be expanded later to check DB connection, etc.
+    # Now 'datetime' is imported and can be used
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 # --- V1 API Routes ---
@@ -108,6 +112,7 @@ async def analyze_content_enhanced(
          raise HTTPException(status_code=401, detail="Could not determine site ID from API Key.")
 
     logger.info(f"Received enhanced analysis request for site: {site_id}")
+    # Pass site_id; analyzer_integration now handles calling EnhancedContentAnalyzer correctly
     result = await enhanced_integration.analyze_content_enhanced(
         content=request.content,
         title=request.title,
@@ -128,14 +133,13 @@ async def analyze_content_enhanced(
           dependencies=[Depends(auth.check_rate_limit)],
           tags=["Bulk Processing"])
 async def start_bulk_job(
-    # --- ADDED BackgroundTasks ---
-    background_tasks: BackgroundTasks,
-    # --- END ADDED ---
+    background_tasks: BackgroundTasks, # FastAPI injects this
     bulk_request: schemas.BulkAnalysisRequest,
     site_info: dict = Depends(auth.get_site_from_api_key)
 ):
     """
     Start a bulk processing job (knowledge building or suggestion generation).
+    Runs the actual processing in the background.
     """
     site_id = site_info.get('site_id')
     if not site_id:
@@ -146,16 +150,14 @@ async def start_bulk_job(
     if not bulk_request.content_items:
          raise HTTPException(status_code=400, detail="No content items provided for bulk processing.")
 
-    # Use the bulk_integration module to start the job
-    # --- PASS background_tasks ---
+    # Use the bulk_integration module to start the job (which now uses background tasks)
     job_info = await bulk_integration.start_bulk_processing(
-        background_tasks=background_tasks, # Pass it here
+        background_tasks=background_tasks,
         content_items=[item.dict() for item in bulk_request.content_items], # Convert Pydantic models to dicts
         site_id=site_id,
         batch_size=bulk_request.batch_size,
         knowledge_building=bulk_request.knowledge_building
     )
-    # --- END PASS ---
 
     if job_info.get("status") == "error":
         raise HTTPException(status_code=500, detail=job_info.get("error", "Failed to start bulk job"))
@@ -179,7 +181,7 @@ async def get_bulk_job_status(
     status_info = bulk_integration.get_job_status(job_id)
 
     # Optional: Add check here to ensure the site_id from site_info matches the job's site_id for security
-    # if status_info.get("site_id") != site_info.get("site_id"):
+    # if not status_info.get("status") == "not_found" and status_info.get("site_id") != site_info.get("site_id"):
     #     raise HTTPException(status_code=404, detail="Job ID not found for your site.")
 
     if status_info.get("status") == "not_found":
@@ -252,7 +254,11 @@ async def get_kb_stats(
         kb = KnowledgeDatabase(site_id=site_id)
         stats = kb.get_database_stats()
         if not stats:
-             raise HTTPException(status_code=404, detail="Knowledge base statistics not available.")
+             # Return empty stats object or 404? Let's return empty for now
+             # Use default values from Pydantic model if possible, or return empty dict
+              logger.warning(f"Knowledge base for site {site_id} returned empty stats.")
+              # Raise 404 instead?
+              raise HTTPException(status_code=404, detail=f"Could not retrieve stats for site {site_id}. KB might be empty.")
         return stats
     except Exception as e:
         logger.error(f"Error getting KB stats for site {site_id}: {e}", exc_info=True)
