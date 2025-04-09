@@ -205,89 +205,137 @@ class KnowledgeDatabase:
                 cursor = conn.cursor()
                 
                 content_id = str(content_data.get("id", ""))
+                url = str(content_data.get("url", ""))
+                content = content_data.get("content", "")
                 title = content_data.get("title", "")
-                url = content_data.get("url", "")
+                published_date = content_data.get("published_date")
                 now = datetime.now().isoformat()
                 
+                # Generate embedding if content provided and analyser is available
+                if content and self.embedding_model:
+                    try:
+                        # Use the analyser's method if available, else generate directly
+                        if self.analyser and hasattr(self.analyser, '_generate_embedding'):
+                             embedding = self.analyser._generate_embedding(content)
+                             logger.debug(f"Generated embedding of shape {embedding.shape if embedding is not None else 'None'} via analyser for {content_id}")
+                        else:
+                            embedding = self._generate_embedding(content) # Fallback to direct generation
+                            logger.debug(f"Generated embedding of shape {embedding.shape if embedding is not None else 'None'} via KB method for {content_id}")
+                        
+                        if embedding is not None:
+                           embedding_bytes = self._embedding_to_bytes(embedding)
+                           logger.debug(f"Embedding converted to bytes (length: {len(embedding_bytes) if embedding_bytes else 0}) for {content_id}")
+                        else:
+                           logger.warning(f"Embedding generation returned None for {content_id}")
+                    except Exception as embed_error:
+                       logger.error(f"Error generating embedding for {content_id}: {embed_error}", exc_info=True)
+                       # Decide if we should proceed without embedding or fail
+                       # For now, proceeding without embedding
+                
                 # Check if content already exists
-                cursor.execute("SELECT hash FROM content WHERE content_id = ?", (content_id,))
-                result = cursor.fetchone()
+                cursor.execute("SELECT hash, embedding FROM content WHERE content_id = ?", (content_id,))
+                existing = cursor.fetchone()
                 
-                embedding_updated = False # Flag to track if embedding was potentially updated
-                
-                if result:
-                    existing_hash = result[0]
-                    # If hash is the same, BUT we have new embedding bytes, still proceed to update embedding
-                    if existing_hash == content_hash and embedding_bytes is None:
-                         # If hash matches AND no new embedding provided, skip everything
-                         logger.debug(f"Content {content_id} already exists with same hash and no new embedding provided. Skipping.")
-                         return True # Indicate success (already up-to-date state)
+                if existing:
+                    existing_hash = existing[0]
+                    existing_embedding = existing[1]
                     
-                    # Update content record - include embedding
-                    logger.debug(f"Updating content record for {content_id}. Hash changed: {existing_hash != content_hash}, Embedding provided: {embedding_bytes is not None}")
-                    cursor.execute(
-                        """UPDATE content 
-                           SET title = ?, url = ?, hash = ?, embedding = ?, updated_at = ? 
-                           WHERE content_id = ?""",
-                        (title, url, content_hash, embedding_bytes, now, content_id)
-                    )
-                    embedding_updated = True # Embedding is updated/set here
-                    
-                    # Delete existing entity and topic data before re-inserting
-                    cursor.execute("DELETE FROM entities WHERE content_id = ?", (content_id,))
-                    cursor.execute("DELETE FROM topics WHERE content_id = ?", (content_id,))
-                    
+                    # Update if hash is different OR if we have a new embedding and the old one was missing
+                    if existing_hash != content_hash or (embedding_bytes is not None and existing_embedding is None):
+                        logger.debug(f"Updating content {content_id}. Hash changed: {existing_hash != content_hash}. New embedding provided while old was missing: {embedding_bytes is not None and existing_embedding is None}")
+                        
+                        update_query = """
+                           UPDATE content 
+                           SET title = ?, url = ?, hash = ?, updated_at = ? 
+                           WHERE content_id = ?"""
+                        params = [title, str(url), content_hash, now, content_id] # Ensure url is string for UPDATE
+
+                        # Only update embedding if it was successfully generated
+                        if embedding_bytes is not None:
+                           update_query = """
+                               UPDATE content 
+                               SET title = ?, url = ?, hash = ?, embedding = ?, updated_at = ? 
+                               WHERE content_id = ?"""
+                           params = [title, str(url), content_hash, embedding_bytes, now, content_id] # Ensure url is string for UPDATE
+                           embedding_updated = True # Embedding is updated/set here
+
+                        cursor.execute(update_query, tuple(params))
+
+                        # Delete existing entity and topic data before re-inserting
+                        cursor.execute("DELETE FROM entities WHERE content_id = ?", (content_id,))
+                        cursor.execute("DELETE FROM topics WHERE content_id = ?", (content_id,))
+                        
+                    else:
+                        logger.info(f"Content {content_id} hash matches and embedding status is unchanged. Skipping content/embedding update, checking entities/topics.")
+                        # Even if content/embedding isn't updated, we might need to update entities/topics
+                        # Delete existing entity and topic data before re-inserting IF they are provided in content_data
+                        if "entities" in content_data or "topics" in content_data:
+                             logger.debug(f"Updating entities/topics for {content_id} as they were provided.")
+                             cursor.execute("DELETE FROM entities WHERE content_id = ?", (content_id,))
+                             cursor.execute("DELETE FROM topics WHERE content_id = ?", (content_id,))
+                        else:
+                             logger.debug(f"No entities/topics provided for {content_id}, skipping delete/re-insert.")
+                             conn.commit() # Need to commit if we are returning early
+                             return True # Nothing more to do for this item
+
+
                 else:
-                    # Insert new content record - include embedding
+                    # Insert new content record - include embedding if available
                     logger.debug(f"Inserting new content record for {content_id}. Embedding provided: {embedding_bytes is not None}")
                     cursor.execute(
                         """INSERT INTO content 
                            (content_id, title, url, hash, embedding, created_at, updated_at) 
                            VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                        (content_id, title, url, content_hash, embedding_bytes, now, now)
+                        (content_id, title, str(url), content_hash, embedding_bytes, now, now) # Ensure url is string for INSERT
                     )
-                    embedding_updated = True # Embedding is inserted here
+                    if embedding_bytes is not None:
+                        embedding_updated = True # Embedding is inserted here
                 
-                # Add entity data
-                entities = content_data.get("entities", {})
-                for entity_type, entity_list in entities.items():
-                    for entity_value in entity_list:
-                        # Handle if entity is dict with confidence or just a string
-                        if isinstance(entity_value, dict):
-                            value = entity_value.get("value", "")
-                            confidence = entity_value.get("confidence", 1.0)
-                        else:
-                            value = entity_value
-                            confidence = 1.0
-                        
-                        cursor.execute(
-                            "INSERT INTO entities (content_id, entity_type, entity_value, confidence) VALUES (?, ?, ?, ?)",
-                            (content_id, entity_type, value, confidence)
-                        )
+                # Add entity data (only if entities were provided)
+                entities = content_data.get("entities")
+                if entities is not None: # Check if the key exists and is not None
+                    for entity_type, entity_list in entities.items():
+                        for entity_value in entity_list:
+                            # Handle if entity is dict with confidence or just a string
+                            if isinstance(entity_value, dict):
+                                value = entity_value.get("value", "")
+                                confidence = entity_value.get("confidence", 1.0)
+                            else:
+                                value = entity_value
+                                confidence = 1.0
+                            
+                            cursor.execute(
+                                "INSERT INTO entities (content_id, entity_type, entity_value, confidence) VALUES (?, ?, ?, ?)",
+                                (content_id, entity_type, value, confidence)
+                            )
                 
-                # Add topic data
-                topics = content_data.get("topics", {})
-                for topic_type, topic_list in topics.items():
-                    for topic_data in topic_list:
-                        # Handle if topic is dict with weight or just a string
-                        if isinstance(topic_data, dict):
-                            value = topic_data.get("value", "")
-                            weight = topic_data.get("weight", 1.0)
-                        else:
-                            value = topic_data
-                            weight = 1.0
-                        
-                        cursor.execute(
-                            "INSERT INTO topics (content_id, topic_type, topic_value, weight) VALUES (?, ?, ?, ?)",
-                            (content_id, topic_type, value, weight)
-                        )
+                # Add topic data (only if topics were provided)
+                topics = content_data.get("topics")
+                if topics is not None: # Check if the key exists and is not None
+                    for topic_type, topic_list in topics.items():
+                        for topic_data in topic_list:
+                            # Handle if topic is dict with weight or just a string
+                            if isinstance(topic_data, dict):
+                                value = topic_data.get("value", "")
+                                weight = topic_data.get("weight", 1.0)
+                            else:
+                                value = topic_data
+                                weight = 1.0
+                            
+                            cursor.execute(
+                                "INSERT INTO topics (content_id, topic_type, topic_value, weight) VALUES (?, ?, ?, ?)",
+                                (content_id, topic_type, value, weight)
+                            )
                 
                 conn.commit()
-                if embedding_updated:
-                    logger.info(f"Content {content_id} added/updated in knowledge database (including embedding).")
+                if existing and not embedding_updated and existing_hash == content_hash and ("entities" not in content_data and "topics" not in content_data):
+                    # This case covers when hash matches, embedding wasn't updated/missing, and no new entities/topics provided
+                     logger.info(f"Content {content_id} already up-to-date in knowledge database.")
+                elif embedding_updated:
+                    logger.info(f"Content {content_id} {'updated' if existing else 'added'} in knowledge database (including embedding and any provided entities/topics).")
                 else:
-                     # This case should now only happen if hash matched AND embedding_bytes was None
-                     logger.info(f"Content {content_id} metadata/entities/topics added/updated in knowledge database (embedding not updated).")
+                     # This case handles: new item without embedding, or existing item updated (metadata/entities/topics) but embedding wasn't or couldn't be
+                     logger.info(f"Content {content_id} {'updated' if existing else 'added'} in knowledge database (embedding not included/updated, entities/topics updated if provided).")
 
                 # Check if cleanup is needed
                 self._check_cleanup_needed(cursor)
