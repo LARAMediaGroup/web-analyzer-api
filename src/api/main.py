@@ -1,416 +1,270 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Request, BackgroundTasks, Path, Response
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+# src/api/main.py
+
+import logging.config
 import os
-import json
-import logging
-from pydantic import BaseModel, Field
+from typing import List, Optional
 
-# Import analyzer integrations
-from src.api.analyzer_integration import analyze_content_task
-from src.api.enhanced_integration import analyze_content_enhanced
-from src.api.bulk_integration import start_bulk_processing, get_job_status, stop_job, list_jobs
+from fastapi import FastAPI, HTTPException, Depends, Body, BackgroundTasks # Added BackgroundTasks
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
-# Import authentication and caching
-from src.api.auth import get_site_from_api_key, check_rate_limit
-from src.api.cache import cached
-
-# Import KnowledgeDatabase
+# Import API routers and dependencies
+from src.api import schemas, auth, cache, analyzer_integration, enhanced_integration, bulk_integration
 from src.core.knowledge_db.knowledge_database import KnowledgeDatabase
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("logs/api.log"),
-        logging.StreamHandler()
-    ]
-)
+# Ensure logging is configured before importing modules that use logging
+log_config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'logging_config.json')
+if os.path.exists(log_config_path):
+    logging.config.fileConfig(log_config_path, disable_existing_loggers=False)
+else:
+    logging.basicConfig(level=logging.INFO) # Basic config if file not found
+
 logger = logging.getLogger("web_analyzer_api")
 
-# Initialize FastAPI app
+# Create FastAPI app instance
 app = FastAPI(
-    title="Web Analyzer API",
-    description="API for analyzing web content and generating internal links",
-    version="1.0.0"
+    title="Web Content Analyzer API",
+    description="API for analyzing web content and suggesting internal links.",
+    version="1.1.0", # Incremented version
 )
 
-# Download required NLTK data on startup
-@app.on_event("startup")
-async def download_nltk_data():
-    import nltk
-    nltk.download('punkt')
-    nltk.download('punkt_tab')
-    nltk.download('averaged_perceptron_tagger')
-    nltk.download('wordnet')
-    nltk.download('stopwords')
-    nltk.download('maxent_ne_chunker')
-    nltk.download('words')
+# Configure CORS (Cross-Origin Resource Sharing)
+# Adjust origins as needed for your frontend applications
+origins = [
+    "http://localhost",
+    "http://localhost:8080", # Example for local dev
+    "https://thevou.com", # Add your WordPress site URL
+    # Add other allowed origins if necessary
+]
 
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://thevou.com", "https://www.thevou.com"],
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["*"], # Allows all methods (GET, POST, etc.)
+    allow_headers=["*"], # Allows all headers
 )
 
-# Define request/response models
-class ContentAnalysisRequest(BaseModel):
-    content: str = Field(..., min_length=1, description="The main text content to analyze.")
-    title: str = Field(..., min_length=1, description="The title of the content.")
-    url: Optional[str] = Field(None, description="The canonical URL of the content being analyzed (used to prevent self-links).")
-    site_id: Optional[str] = None
+# --- API Routes ---
 
-class LinkSuggestion(BaseModel):
-    anchor_text: str
-    target_url: str
-    context: str
-    confidence: float
-    paragraph_index: int
+# Root endpoint (optional)
+@app.get("/")
+async def read_root():
+    return {"message": "Welcome to the Web Content Analyzer API!"}
 
-class ContentAnalysisResponse(BaseModel):
-    link_suggestions: List[LinkSuggestion]
-    processing_time: float
-    status: str
-    analysis: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-
-# Bulk processing models
-class ContentItem(BaseModel):
-    content: str
-    title: str
-    url: Optional[str] = None
-    id: Optional[str] = None
-
-class BulkProcessingRequest(BaseModel):
-    content_items: List[ContentItem]
-    site_id: Optional[str] = None
-    batch_size: Optional[int] = None
-    knowledge_building: Optional[bool] = False
-
-class BulkProcessingResponse(BaseModel):
-    job_id: str
-    status: str
-    total_items: int
-    site_id: Optional[str] = None
-    knowledge_building: Optional[bool] = False
-    error: Optional[str] = None
-
-class JobStatusResponse(BaseModel):
-    job_id: str
-    status: str
-    site_id: Optional[str] = None
-    total_items: int
-    processed_items: int
-    progress: float
-    elapsed_seconds: float
-    report_path: Optional[str] = None
-    stats: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-    knowledge_building: Optional[bool] = False
-    knowledge_db: Optional[Dict[str, Any]] = None
-
-# Health check endpoint at root level
-@app.get("/health", tags=["Health"])
+# Health check endpoint
+@app.get("/health", response_model=schemas.HealthResponse, tags=["Status"])
 async def health_check():
-    logger.info("Health check endpoint called")
+    """Check the health of the API."""
+    # Basic check, could be expanded later to check DB connection, etc.
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
-# Content analysis endpoint with authentication and caching
-@app.post("/api/v1/analyze/content", response_model=ContentAnalysisResponse, tags=["Analysis"])
-async def analyze_content(
-    request: ContentAnalysisRequest,
-    site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
+# --- V1 API Routes ---
+api_v1_prefix = "/api/v1"
+
+# Simple content analysis endpoint (using ContentAnalyzer)
+@app.post(f"{api_v1_prefix}/analyze/content",
+          response_model=schemas.AnalysisResponse,
+          dependencies=[Depends(auth.check_rate_limit)], # Apply auth/rate limiting
+          tags=["Analysis"])
+@cache.cached(ttl=3600) # Cache results for 1 hour
+async def analyze_content_simple(
+    request: schemas.AnalysisRequest,
+    site_info: dict = Depends(auth.get_site_from_api_key) # Get site info from API key
 ):
-    site_id = site_info["site_id"]
-    logger.info(f"Analyzing content with title: {request.title} for site: {site_id}")
-
-    try:
-        # Use the site_id from authentication, not from the request
-        # This ensures we're using the authenticated site's ID
-        result = await analyze_content_with_cache(
-            content=request.content,
-            title=request.title,
-            site_id=site_id,
-            url=request.url
-        )
-
-        return result
-    except Exception as e:
-        logger.error(f"Error analyzing content for site {site_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error analyzing content: {str(e)}"
-        )
-
-# Helper function with caching applied
-@cached(ttl=3600)  # Cache results for 1 hour
-async def analyze_content_with_cache(content: str, title: str, site_id: str, url: Optional[str] = None) -> Dict[str, Any]:
     """
-    Analyze content with caching.
-    
-    This function is wrapped with the @cached decorator to cache results.
+    Analyze content using the simple analyzer (topic weights).
     """
-    return await analyze_content_task(
-        content=content,
-        title=title,
-        site_id=site_id,
-        url=url
+    logger.info(f"Received simple analysis request for site: {site_info.get('site_id', 'N/A')}")
+    # Note: site_id from site_info is currently NOT used by analyzer_integration.analyze_content_task
+    result = await analyzer_integration.analyze_content_task(
+        content=request.content,
+        title=request.title,
+        site_id=site_info.get('site_id'), # Pass site_id
+        url=request.url
     )
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("error", "Analysis failed"))
+    return result
 
-# Enhanced content analysis endpoint
-@app.post("/api/v1/analyze/enhanced", response_model=ContentAnalysisResponse, tags=["Analysis"])
-async def analyze_content_enhanced_endpoint(
-    request: ContentAnalysisRequest,
-    site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
+# Enhanced content analysis endpoint (using EnhancedContentAnalyzer)
+@app.post(f"{api_v1_prefix}/analyze/enhanced",
+          response_model=schemas.AnalysisResponse,
+          dependencies=[Depends(auth.check_rate_limit)], # Apply auth/rate limiting
+          tags=["Analysis"])
+# @cache.cached(ttl=3600) # Caching might be less effective if KB changes frequently
+async def analyze_content_enhanced(
+    request: schemas.AnalysisRequest,
+    site_info: dict = Depends(auth.get_site_from_api_key) # Get site info from API key
 ):
-    site_id = site_info["site_id"]
-    logger.info(f"Starting enhanced analysis with title: {request.title} for site: {site_id}")
-
-    try:
-        # Use the site_id from authentication, not from the request
-        # This ensures we're using the authenticated site's ID
-        result = await analyze_enhanced_with_cache(
-            content=request.content,
-            title=request.title,
-            site_id=site_id,
-            url=request.url
-        )
-
-        return result
-    except Exception as e:
-        logger.error(f"Error in enhanced analysis for site {site_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error analyzing content: {str(e)}"
-        )
-
-@cached(ttl=3600)  # Cache results for 1 hour
-async def analyze_enhanced_with_cache(content: str, title: str, site_id: str, url: Optional[str] = None) -> Dict[str, Any]:
     """
-    Perform enhanced analysis with caching.
-    
-    This function is wrapped with the @cached decorator to cache results.
+    Analyze content using the enhanced analyzer (embeddings, KB).
+    Requires site_id derived from API Key.
     """
-    return await analyze_content_enhanced(
-        content=content,
-        title=title,
-        site_id=site_id,
-        url=url
+    site_id = site_info.get('site_id')
+    if not site_id:
+         # Should not happen if get_site_from_api_key worked, but defensive check
+         raise HTTPException(status_code=401, detail="Could not determine site ID from API Key.")
+
+    logger.info(f"Received enhanced analysis request for site: {site_id}")
+    result = await enhanced_integration.analyze_content_enhanced(
+        content=request.content,
+        title=request.title,
+        site_id=site_id, # Pass validated site_id
+        url=request.url
     )
+    if result.get("status") == "error":
+        # Determine appropriate status code based on error type if possible
+        status_code = 500 if "Internal" in result.get("error", "") else 400
+        raise HTTPException(status_code=status_code, detail=result.get("error", "Analysis failed"))
+    return result
 
-# Bulk processing endpoint
-@app.post("/api/v1/bulk/process", response_model=BulkProcessingResponse, tags=["Bulk Processing"])
-async def bulk_process(
-    request: BulkProcessingRequest,
-    site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
-):
-    site_id = site_info["site_id"]
-    logger.info(f"Starting bulk processing for site: {site_id}, {len(request.content_items)} items")
+# --- Bulk Processing Endpoints ---
 
-    try:
-        # Convert content items to dict format for processing
-        content_items = [item.dict() for item in request.content_items]
-        
-        # Start bulk processing
-        result = await start_bulk_processing(
-            content_items=content_items,
-            site_id=site_id,
-            batch_size=request.batch_size,
-            knowledge_building=request.knowledge_building
-        )
-        
-        return result
-    except Exception as e:
-        logger.error(f"Error starting bulk processing for site {site_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error starting bulk processing: {str(e)}"
-        )
-
-# Job status endpoint
-@app.get("/api/v1/bulk/status/{job_id}", response_model=JobStatusResponse, tags=["Bulk Processing"])
-async def job_status(
-    job_id: str,
-    site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
-):
-    site_id = site_info["site_id"]
-    logger.info(f"Getting job status for job: {job_id}, site: {site_id}")
-
-    try:
-        # Get job status
-        result = get_job_status(job_id)
-        
-        # Check if job belongs to this site
-        if result.get("site_id") and result.get("site_id") != site_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Job {job_id} does not belong to site {site_id}"
-            )
-        
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting job status for job {job_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error getting job status: {str(e)}"
-        )
-
-# Stop job endpoint
-@app.post("/api/v1/bulk/stop/{job_id}", tags=["Bulk Processing"])
-async def stop_processing_job(
-    job_id: str,
-    site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
-):
-    site_id = site_info["site_id"]
-    logger.info(f"Stopping job: {job_id}, site: {site_id}")
-
-    try:
-        # Get job info first
-        job_info = get_job_status(job_id)
-        
-        # Check if job belongs to this site
-        if job_info.get("site_id") and job_info.get("site_id") != site_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Job {job_id} does not belong to site {site_id}"
-            )
-        
-        # Stop the job
-        result = stop_job(job_id)
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error stopping job {job_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error stopping job: {str(e)}"
-        )
-
-# List jobs endpoint
-@app.get("/api/v1/bulk/jobs", tags=["Bulk Processing"])
-async def list_all_jobs(
-    site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
-):
-    site_id = site_info["site_id"]
-    logger.info(f"Listing jobs for site: {site_id}")
-
-    try:
-        # List jobs for this site
-        jobs = list_jobs(site_id)
-        return {"jobs": jobs, "count": len(jobs)}
-    except Exception as e:
-        logger.error(f"Error listing jobs for site {site_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error listing jobs: {str(e)}"
-        )
-
-# Knowledge stats endpoint
-@app.get("/api/v1/knowledge/stats", tags=["Knowledge Database"])
-async def get_knowledge_stats(
-    site_info: Dict = Depends(check_rate_limit)  # This also validates the API key
-):
-    site_id = site_info["site_id"]
-    logger.info(f"Getting knowledge database stats for site: {site_id}")
-
-    try:
-        # Create a new processor to access the knowledge database
-        # We do this to avoid importing the KnowledgeDatabase directly
-        from src.core.bulk_processor import BulkContentProcessor
-        processor = BulkContentProcessor(site_id=site_id)
-        
-        # Get the stats
-        stats = processor.knowledge_db.get_database_stats()
-        
-        # Add a flag indicating if database is ready for analysis
-        min_db_size = processor.config.get("initial_db_size", 100)
-        stats["ready_for_analysis"] = stats.get("content_count", 0) >= min_db_size
-        stats["minimum_required"] = min_db_size
-        
-        return {
-            "site_id": site_id,
-            "knowledge_db": stats
-        }
-    except Exception as e:
-        logger.error(f"Error getting knowledge database stats for site {site_id}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error getting knowledge database stats: {str(e)}"
-        )
-
-# Knowledge Base Management Endpoints
-
-@app.delete(
-    "/api/v1/kb/content/{content_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    tags=["Knowledge Base"],
-    summary="Remove Content from Knowledge Base",
-    description="Removes a specific content item and its associated data (entities, topics) from the site's knowledge base. Requires API key matching the site.",
-)
-async def remove_kb_content(
-    content_id: str = Path(..., description="The unique identifier of the content to remove (e.g., WordPress Post ID)."),
-    site_info: Dict = Depends(check_rate_limit) # Use the same auth dependency
+@app.post(f"{api_v1_prefix}/bulk/process",
+          response_model=schemas.JobSubmissionResponse,
+          status_code=202, # Accepted
+          dependencies=[Depends(auth.check_rate_limit)],
+          tags=["Bulk Processing"])
+async def start_bulk_job(
+    # --- ADDED BackgroundTasks ---
+    background_tasks: BackgroundTasks,
+    # --- END ADDED ---
+    bulk_request: schemas.BulkAnalysisRequest,
+    site_info: dict = Depends(auth.get_site_from_api_key)
 ):
     """
-    Deletes content from the Knowledge Base.
-
-    - Requires authentication via API Key.
-    - The `site_id` associated with the API key determines which knowledge base is accessed.
-    - Returns `204 No Content` on successful deletion or if the content was already gone.
-    - Returns `403 Forbidden` if API key is invalid or rate limit exceeded.
-    - Returns `500 Internal Server Error` on database errors.
+    Start a bulk processing job (knowledge building or suggestion generation).
     """
-    site_id = site_info["site_id"]
-    logger.info(f"API: Received request to remove content_id '{content_id}' from KB for site '{site_id}'.")
+    site_id = site_info.get('site_id')
+    if not site_id:
+         raise HTTPException(status_code=401, detail="Could not determine site ID from API Key.")
 
-    if not content_id:
-        logger.warning(f"API: Received remove request with empty content_id for site '{site_id}'.")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Content ID cannot be empty."
-        )
+    logger.info(f"Received bulk processing request for site: {site_id}, items: {len(bulk_request.content_items)}, knowledge_building: {bulk_request.knowledge_building}")
 
+    if not bulk_request.content_items:
+         raise HTTPException(status_code=400, detail="No content items provided for bulk processing.")
+
+    # Use the bulk_integration module to start the job
+    # --- PASS background_tasks ---
+    job_info = await bulk_integration.start_bulk_processing(
+        background_tasks=background_tasks, # Pass it here
+        content_items=[item.dict() for item in bulk_request.content_items], # Convert Pydantic models to dicts
+        site_id=site_id,
+        batch_size=bulk_request.batch_size,
+        knowledge_building=bulk_request.knowledge_building
+    )
+    # --- END PASS ---
+
+    if job_info.get("status") == "error":
+        raise HTTPException(status_code=500, detail=job_info.get("error", "Failed to start bulk job"))
+
+    # Return 202 Accepted with Job ID
+    return job_info
+
+
+@app.get(f"{api_v1_prefix}/bulk/status/{{job_id}}",
+         response_model=schemas.JobStatusResponse,
+         dependencies=[Depends(auth.check_rate_limit)],
+         tags=["Bulk Processing"])
+async def get_bulk_job_status(
+    job_id: str,
+    site_info: dict = Depends(auth.get_site_from_api_key) # Ensure user can only query jobs for their site? Maybe later.
+):
+    """
+    Get the status of a specific bulk processing job.
+    """
+    logger.debug(f"Request for job status: {job_id}, requesting site: {site_info.get('site_id')}")
+    status_info = bulk_integration.get_job_status(job_id)
+
+    # Optional: Add check here to ensure the site_id from site_info matches the job's site_id for security
+    # if status_info.get("site_id") != site_info.get("site_id"):
+    #     raise HTTPException(status_code=404, detail="Job ID not found for your site.")
+
+    if status_info.get("status") == "not_found":
+        raise HTTPException(status_code=404, detail=status_info.get("error", "Job not found"))
+
+    return status_info
+
+
+@app.post(f"{api_v1_prefix}/bulk/stop/{{job_id}}",
+          response_model=schemas.JobControlResponse,
+          dependencies=[Depends(auth.check_rate_limit)],
+          tags=["Bulk Processing"])
+async def stop_bulk_job(
+    job_id: str,
+    site_info: dict = Depends(auth.get_site_from_api_key) # Add security check?
+):
+    """
+    Request to stop a running bulk processing job.
+    """
+    logger.info(f"Received request to stop job: {job_id}, requesting site: {site_info.get('site_id')}")
+    # Optional: Add site_id check for security
+    stop_info = bulk_integration.stop_job(job_id)
+
+    if stop_info.get("status") == "not_found":
+         raise HTTPException(status_code=404, detail=stop_info.get("error", "Job not found"))
+    if stop_info.get("status") == "error":
+        raise HTTPException(status_code=500, detail=stop_info.get("error", "Failed to stop job"))
+
+    return stop_info
+
+
+@app.get(f"{api_v1_prefix}/bulk/jobs",
+         response_model=List[schemas.JobListInfo],
+         dependencies=[Depends(auth.check_rate_limit)],
+         tags=["Bulk Processing"])
+async def list_bulk_jobs(
+    site_info: dict = Depends(auth.get_site_from_api_key)
+):
+    """
+    List recent bulk processing jobs for the site associated with the API key.
+    """
+    site_id = site_info.get('site_id')
+    if not site_id:
+        raise HTTPException(status_code=401, detail="Could not determine site ID from API Key.")
+
+    logger.debug(f"Request to list jobs for site: {site_id}")
+    # Filter jobs by site_id in the integration layer
+    jobs = bulk_integration.list_jobs(site_id=site_id)
+    return jobs
+
+# --- Knowledge Base Endpoints (Optional) ---
+
+@app.get(f"{api_v1_prefix}/knowledge/stats",
+         response_model=schemas.KnowledgeBaseStats,
+         dependencies=[Depends(auth.check_rate_limit)],
+         tags=["Knowledge Base"])
+async def get_kb_stats(
+    site_info: dict = Depends(auth.get_site_from_api_key)
+):
+    """
+    Get statistics about the knowledge base for the site.
+    """
+    site_id = site_info.get('site_id')
+    if not site_id:
+         raise HTTPException(status_code=401, detail="Could not determine site ID from API Key.")
+
+    logger.debug(f"Request for KB stats for site: {site_id}")
     try:
-        # Initialize KnowledgeDatabase for the specific site
-        # Pass the main config path, KB will load its specific settings
+        # Consider if KB instance should be shared/cached or created per request
         kb = KnowledgeDatabase(site_id=site_id)
-
-        # Attempt to remove the content
-        success = kb.remove_content(content_id=str(content_id)) # Ensure content_id is string
-
-        if success:
-            logger.info(f"API: Successfully processed removal request for content_id '{content_id}', site '{site_id}'. Content removed.")
-            # Return 204 even if it was already gone, the desired state is achieved.
-            return Response(status_code=status.HTTP_204_NO_CONTENT)
-        else:
-            # Log that it wasn't found, but still return 204 as the end state (not present) is met.
-            # If we wanted to differentiate between "deleted now" and "already gone", we could return a different response or body.
-            # For simplicity and idempotency, 204 is often preferred for DELETE.
-            logger.info(f"API: Processed removal request for content_id '{content_id}', site '{site_id}'. Content was not found (already removed or never existed).")
-            return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-    except HTTPException as http_exc:
-         # Re-raise HTTPExceptions (like rate limit errors from dependency)
-         raise http_exc
+        stats = kb.get_database_stats()
+        if not stats:
+             raise HTTPException(status_code=404, detail="Knowledge base statistics not available.")
+        return stats
     except Exception as e:
-        # Log the detailed error
-        logger.error(f"API: Error removing content_id '{content_id}' from KB for site '{site_id}': {str(e)}", exc_info=True)
-        # Return a generic 500 error to the client
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to remove content from knowledge base: {str(e)}"
-        )
+        logger.error(f"Error getting KB stats for site {site_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to retrieve knowledge base statistics.")
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+# Add more endpoints as needed (e.g., delete KB entry, query specific entry)
+
+
+# Include other routers if you split endpoints into separate files later
+# app.include_router(other_router.router, prefix="/api/v1/other", tags=["Other"])
+
+logger.info("FastAPI application configured and ready.")
+
+# Note: Uvicorn or similar will run this app instance. Example command:
+# uvicorn src.api.main:app --reload --log-config config/logging_config.json
