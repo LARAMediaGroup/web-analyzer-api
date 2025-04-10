@@ -1,0 +1,31 @@
+    # config/topic_weights.yaml
+    Grooming Basics:
+      terms:
+        - shave
+        - razor
+        - cream
+        - skin care
+        - moisturizer
+      weight: 1.0
+
+    Beard Styles:
+      terms:
+        - beard
+        - trim
+        - goatee
+        - stubble
+        - style
+        - oil
+      weight: 1.2
+
+    Hair Care:
+      terms:
+        - shampoo
+        - conditioner
+        - pomade
+        - wax
+        - style
+        - hair cut
+      weight: 1.0
+
+    # Add more categories relevant to men's style/grooming...

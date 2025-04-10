@@ -22,8 +22,8 @@ class ContentAnalyzer:
 
     def __init__(self, config_path: str = "config.json", config_dir: str = CONFIG_DIR):
         logger.info("Initializing ContentAnalyzer...") # Log start
-        self.config = self._load_app_config(config_path)
-        self.config_dir = config_dir
+        self.config_dir = config_dir # Assign config_dir FIRST
+        self.config = self._load_app_config(config_path) # THEN load config
         # Load topic categories from YAML during initialization
         self.topic_categories = self._init_topic_categories()
         if not self.topic_categories:
