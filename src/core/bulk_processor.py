@@ -40,12 +40,12 @@ class BulkContentProcessor:
             site_id: Optional site identifier for multi-site support
         """
         self.config = self._load_config(config_path)
-        self.analyzer = EnhancedContentAnalyzer(config_path)
+        self.analyzer = EnhancedContentAnalyzer(config_path) # Initialize the analyzer
 
-        # Initialize knowledge database
+        # Initialize knowledge database - REMOVED analyser argument
         self.site_id = site_id or "default"
-        # Pass the analyzer instance to the KB if it needs it for embedding generation
-        self.knowledge_db = KnowledgeDatabase(config_path, self.site_id, analyser=self.analyzer)
+        # The KnowledgeDatabase class now loads its own model internally
+        self.knowledge_db = KnowledgeDatabase(config_path, self.site_id)
 
         # Processing parameters
         self.max_workers = self.config.get("max_workers", 4)
@@ -56,22 +56,40 @@ class BulkContentProcessor:
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """Load configuration from JSON file."""
         try:
-            if os.path.exists(config_path):
-                with open(config_path, 'r') as f:
-                    return json.load(f)
+            # Determine project root relative to this file (src/core/bulk_processor.py)
+            project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+            actual_config_path = os.path.join(project_root, config_path)
+            logger.debug(f"Attempting to load main config from: {actual_config_path}")
+            if os.path.exists(actual_config_path):
+                with open(actual_config_path, 'r') as f:
+                    config_data = json.load(f)
+                    # Store the path used to load the config if needed elsewhere
+                    config_data["config_path"] = config_path
+                    return config_data
             else:
-                logger.warning(f"Config file {config_path} not found, using defaults")
+                logger.warning(f"Config file {actual_config_path} not found, using defaults")
                 return {
                     "max_workers": 4,
                     "batch_size": 10,
                     "output_dir": "results",
                     "save_intermediate": True,
                     "initial_db_size": 100, # Added default
-                    "embedding_text_field": "title" # Added default
+                    "embedding_text_field": "title", # Added default
+                    "config_path": config_path # Store original path even for defaults
                 }
         except Exception as e:
-            logger.error(f"Error loading config: {str(e)}")
-            return {}
+            logger.error(f"Error loading config from {config_path}: {str(e)}")
+            # Return essential defaults on error
+            return {
+                    "max_workers": 4,
+                    "batch_size": 10,
+                    "output_dir": "results",
+                    "save_intermediate": True,
+                    "initial_db_size": 100,
+                    "embedding_text_field": "title",
+                    "config_path": config_path
+            }
+
 
     def register_progress_callback(self, callback: Callable[[int, int, Dict[str, Any]], None]) -> None:
         """
@@ -119,14 +137,17 @@ class BulkContentProcessor:
         self.reset_stop_signal()
         self.knowledge_building_mode = knowledge_building_mode
 
-        # Update site_id if provided
+        # Use provided site_id or the one from initialization
         current_site_id = site_id if site_id else self.site_id
+
+        # If site_id changes, re-initialize site-specific components
         if site_id and site_id != self.site_id:
             logger.info(f"Switching site context to: {site_id}")
             self.site_id = site_id
-            # Re-initialize components tied to site_id if necessary
-            self.knowledge_db = KnowledgeDatabase(self.config.get("config_path", "config.json"), self.site_id, analyser=self.analyzer)
-            # Note: analyzer might also need re-initialization if site-specific
+            # Re-initialize KB for the new site_id
+            self.knowledge_db = KnowledgeDatabase(self.config.get("config_path", "config.json"), self.site_id)
+            # Re-initialize analyzer if it's site-specific (EnhancedAnalyzer likely is via KB)
+            self.analyzer = EnhancedContentAnalyzer(self.config.get("config_path", "config.json"), self.site_id)
 
         # Check knowledge database status
         db_stats = self.knowledge_db.get_database_stats()
@@ -170,7 +191,7 @@ class BulkContentProcessor:
             try:
                 batch_results = await self._process_batch(
                     current_batch_items,
-                    current_site_id,
+                    current_site_id, # Pass current site_id
                     batch_start,
                     total_items
                 )
@@ -222,7 +243,9 @@ class BulkContentProcessor:
                         "status": "error",
                         "error": f"Batch processing failed: {str(e)}",
                         "link_suggestions": [],
-                        "processing_time": 0
+                        "analysis": {},
+                        "processing_time": 0,
+                        "in_knowledge_db": False
                     })
                 logger.error("Stopping bulk processing due to fatal batch error.")
                 break # Exit batch loop
@@ -264,7 +287,7 @@ class BulkContentProcessor:
     async def _process_batch(
         self,
         batch_items: List[Dict[str, Any]],
-        site_id: Optional[str] = None, # Changed to current_site_id in caller
+        site_id: Optional[str], # Renamed for clarity
         batch_start: int = 0,
         total_items: int = 0
     ) -> List[Dict[str, Any]]:
@@ -367,7 +390,7 @@ class BulkContentProcessor:
     def _process_single_item(
         self,
         item: Dict[str, Any],
-        site_id: Optional[str] = None, # Changed to current_site_id in caller
+        site_id: Optional[str], # Renamed for clarity
         current_index: int = 0,
         total_items: int = 0
     ) -> Dict[str, Any]:
@@ -421,12 +444,14 @@ class BulkContentProcessor:
                 # --- Core Processing ---
                 # 1. Perform basic analysis (required for KB)
                 # Pass original URL object if analyzer expects it
+                # NOTE: Analyzer instance here is self.analyzer (EnhancedContentAnalyzer)
                 analysis_for_kb = self.analyzer._perform_basic_analysis(content, title, url=url)
                 analysis_output = analysis_for_kb # Store this analysis
 
                 # 2. Generate embedding (based on config field)
                 embedding_bytes = None
                 embedding_source_text = None
+                # Use self.knowledge_db.config, as KB handles embedding generation logic now
                 embedding_field = self.knowledge_db.config.get("embedding_text_field", "title")
 
                 if embedding_field == "content": embedding_source_text = content
@@ -437,13 +462,13 @@ class BulkContentProcessor:
 
                 if embedding_source_text:
                     try:
-                        # Use KB's method which might delegate to analyser if configured
+                        # Use KB's method to generate embedding (it handles model loading internally)
                         embedding = self.knowledge_db._generate_embedding(embedding_source_text)
                         if embedding is not None:
                            embedding_bytes = self.knowledge_db._embedding_to_bytes(embedding)
                            if embedding_bytes:
                                logger.debug(f"Generated embedding ({len(embedding_bytes)} bytes) for {item_id} from '{embedding_field}'.")
-                           else: logger.warning(f"Failed to convert embedding to bytes for {item_id}.")
+                           else: logger.warning(f"Failed to convert generated embedding to bytes for {item_id}.")
                         else: logger.warning(f"Embedding generation returned None for {item_id}.")
                     except Exception as embed_err:
                         logger.error(f"Error generating embedding for {item_id}: {embed_err}", exc_info=True)
@@ -465,6 +490,7 @@ class BulkContentProcessor:
                 }
 
                 # add_content now handles internal errors and returns bool
+                # Use self.knowledge_db instance
                 db_success = self.knowledge_db.add_content(knowledge_data, embedding_bytes)
                 if not db_success:
                     logger.warning(f"Failed to add/update item {item_id} in knowledge database.")
@@ -474,6 +500,7 @@ class BulkContentProcessor:
 
                 # 4. Generate Link Suggestions (if not in knowledge building mode and DB is large enough)
                 if not self.knowledge_building_mode:
+                    # Use self.knowledge_db instance
                     db_content_count = self.knowledge_db.get_content_count()
                     min_db_size = self.config.get("initial_db_size", 100)
 
@@ -481,6 +508,7 @@ class BulkContentProcessor:
                         logger.debug(f"KB size ({db_content_count}) >= min ({min_db_size}). Generating suggestions for item {item_id}.")
                         try:
                             # Call the full analyzer method which uses the KB
+                            # Use self.analyzer instance
                             analysis_result_for_suggestions = self.analyzer.analyze_content(
                                 content=content, title=title, site_id=site_id, url=url
                             )
@@ -599,6 +627,11 @@ class BulkContentProcessor:
 
         try:
             output_dir = self.config.get("output_dir", "results")
+            # Ensure output_dir path is absolute or relative to project root
+            project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+            if not os.path.isabs(output_dir):
+                output_dir = os.path.join(project_root, output_dir)
+
             if site_id:
                 output_dir = os.path.join(output_dir, site_id)
             os.makedirs(output_dir, exist_ok=True)
@@ -632,6 +665,11 @@ class BulkContentProcessor:
         """Save final results and stats to disk."""
         try:
             output_dir = self.config.get("output_dir", "results")
+             # Ensure output_dir path is absolute or relative to project root
+            project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+            if not os.path.isabs(output_dir):
+                output_dir = os.path.join(project_root, output_dir)
+
             if site_id:
                 output_dir = os.path.join(output_dir, site_id)
             os.makedirs(output_dir, exist_ok=True)
@@ -669,6 +707,11 @@ class BulkContentProcessor:
         """Generate a report from processing results."""
         try:
             output_dir = self.config.get("output_dir", "results")
+            # Ensure output_dir path is absolute or relative to project root
+            project_root = os.path.join(os.path.dirname(__file__), '..', '..')
+            if not os.path.isabs(output_dir):
+                output_dir = os.path.join(project_root, output_dir)
+
             current_site_id = site_id if site_id else self.site_id
             if current_site_id:
                 output_dir = os.path.join(output_dir, current_site_id)
@@ -802,7 +845,9 @@ class BulkContentProcessor:
             status_class = "status-success" if status == "success" else "status-error"
             error_msg = result.get("error") or result.get("suggestion_error") or ""
             suggestions = result.get("link_suggestions", [])
-            analysis_snippet = json.dumps(result.get("analysis", {}), indent=2) # Pretty print analysis
+            # Ensure analysis is serializable before dumping
+            analysis_safe = self._sanitize_dict_for_json(result.get("analysis", {}))
+            analysis_snippet = json.dumps(analysis_safe, indent=2) # Pretty print analysis
 
             # Display suggestions or error message
             suggestions_or_error_html = ""
