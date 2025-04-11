@@ -122,7 +122,7 @@ class EnhancedContentAnalyzer:
         return [p.strip() for p in paragraphs if len(p.strip()) >= self.min_paragraph_length]
 
 
-    async def analyze_content( # Marked async as it calls async KB methods potentially
+    def analyze_content(
         self,
         content: str,
         title: str,

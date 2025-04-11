@@ -524,7 +524,7 @@ class BulkContentProcessor:
                             # Call the full analyzer method which uses the KB
                             # Use self.analyzer instance
                             # analyze_content needs string URL
-                            analysis_result_for_suggestions = await self.analyzer.analyze_content(
+                            analysis_result_for_suggestions = self.analyzer.analyze_content(
                                 content=content, title=title, site_id=site_id, url=url_str
                             )
                             if analysis_result_for_suggestions:
