@@ -20,7 +20,8 @@ ENV NLTK_DATA=/app/nltk_data
 
 # Download required NLTK data directly to the NLTK_DATA directory
 # Simplified to only essential packages based on current usage
-RUN python -m nltk.downloader -d $NLTK_DATA --unzip punkt stopwords wordnet
+# Removed --unzip flag as it's not valid and unzip is usually automatic
+RUN python -m nltk.downloader -d $NLTK_DATA punkt stopwords wordnet
 
 # Copy the application code
 COPY src/ ./src/
