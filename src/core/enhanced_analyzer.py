@@ -19,7 +19,10 @@ from src.core.analyzers.fashion_entity_analyzer import FashionEntityAnalyzer
 from src.core.analyzers.semantic_context_analyzer import SemanticContextAnalyzer
 from src.core.analyzers.anchor_text_generator import AnchorTextGenerator
 # Import KnowledgeDatabase and the loaded model
-from src.core.knowledge_db.knowledge_database import KnowledgeDatabase, model as sentence_transformer_model
+# --- FIXED IMPORT ---
+from src.core.knowledge_db.knowledge_database import KnowledgeDatabase, global_embedding_model as sentence_transformer_model
+# --- END FIXED IMPORT ---
+
 
 # Configure logging
 logger = logging.getLogger("web_analyzer.enhanced_analyzer")
@@ -37,23 +40,23 @@ class EnhancedContentAnalyzer:
     and semantic search via embeddings for comprehensive content analysis
     and high-quality link suggestions.
     """
-    
+
     def __init__(self, config_path: str = "config.json"):
         """
         Initialize the enhanced content analyzer.
-        
+
         Args:
             config_path: Path to the main configuration file (relative to project root)
         """
         logger.info("Initializing EnhancedContentAnalyzer...")
         project_root = os.path.join(os.path.dirname(__file__), '..', '..') # Navigate up from src/core
         self.config = self._load_config(os.path.join(project_root, config_path))
-        
+
         # Initialize specialized analyzers (consider lazy loading?)
         self.fashion_analyzer = FashionEntityAnalyzer()
         self.semantic_analyzer = SemanticContextAnalyzer()
         self.anchor_generator = AnchorTextGenerator()
-        
+
         # Configuration for relevance scoring
         self.min_relevance = self.config.get("min_relevance", 0.45) # Default threshold potentially higher now
         self.semantic_weight = self.config.get("semantic_weight", 0.7) # Weight for semantic score
@@ -72,7 +75,7 @@ class EnhancedContentAnalyzer:
         logger.info("EnhancedContentAnalyzer initialized.")
         logger.info(f"Relevance config: min_relevance={self.min_relevance}, semantic_weight={self.semantic_weight}, keyword_weight={self.keyword_weight}")
 
-    
+
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """Load configuration from JSON file."""
         try:
@@ -108,7 +111,7 @@ class EnhancedContentAnalyzer:
                  "max_suggestions": 15,
                  "min_content_length": 100
             }
-    
+
     def _split_into_paragraphs(self, content: str) -> List[str]:
         """Split content into paragraphs."""
         if not content: return []
@@ -119,28 +122,28 @@ class EnhancedContentAnalyzer:
         return [p.strip() for p in paragraphs if len(p.strip()) >= self.min_paragraph_length]
 
 
-    def analyze_content(
-        self, 
-        content: str, 
-        title: str, 
+    async def analyze_content( # Marked async as it calls async KB methods potentially
+        self,
+        content: str,
+        title: str,
         site_id: str, # Added site_id parameter
-        url: Optional[str] = None # URL of the current content being analyzed
+        url: Optional[str] = None # URL of the current content being analyzed (string format)
     ) -> Dict[str, Any]:
         """
         Perform comprehensive content analysis using semantic search and find link opportunities.
-        
+
         Args:
             content: The content to analyze
             title: The title of the content
             site_id: Identifier for the website (used for KnowledgeDatabase)
-            url: URL of the current content (used to exclude self-links)
-            
+            url: URL of the current content (string format) (used to exclude self-links)
+
         Returns:
             Dictionary with analysis results and link suggestions
         """
         start_time = datetime.now()
         logger.info(f"Starting enhanced analysis for site: '{site_id}', title: '{title}' (URL: {url})")
-        
+
         # Basic validation
         if not content or not title or not site_id:
             return self._format_error_response("Missing required parameters (content, title, or site_id)")
@@ -151,7 +154,8 @@ class EnhancedContentAnalyzer:
              return self._format_error_response(f"Content too short (minimum {min_length} characters)")
 
         try:
-            # Initialize Knowledge Base
+            # Initialize Knowledge Base for this site_id
+            # Ensure KB loads config correctly relative to its file location
             kb = KnowledgeDatabase(site_id=site_id)
 
             # Perform basic analysis on source content
@@ -184,7 +188,7 @@ class EnhancedContentAnalyzer:
                     # Find top N relevant targets using semantic similarity directly from KB
                     relevant_targets = kb.find_related_content_semantic(
                          query_embedding=paragraph_embedding,
-                         exclude_url=url,
+                         exclude_url=url, # Pass the string URL
                          top_n=10, # How many candidates to consider per paragraph
                          min_similarity=self.min_relevance # Use configured min relevance as threshold
                     )
@@ -207,7 +211,7 @@ class EnhancedContentAnalyzer:
                             break # Stop processing targets for this paragraph
 
                         target_title = target["title"]
-                        target_url = target["url"]
+                        target_url = target["url"] # This is a string from KB
                         semantic_similarity_score = target["similarity"] # Get score from KB search result
 
                         logger.info(f"    Considering target: '{target_title}' (Similarity: {semantic_similarity_score:.3f})")
@@ -229,7 +233,7 @@ class EnhancedContentAnalyzer:
                                 logger.info(f"      Found suitable anchor: '{best_anchor['text']}' (Conf: {best_anchor['confidence']:.2f})")
                                 all_opportunities.append({
                                     "paragraph_index": para_idx,
-                                    "target_url": target_url,
+                                    "target_url": target_url, # Keep as string here
                                     "target_title": target_title,
                                     # Use semantic similarity as the primary relevance score
                                     "relevance": round(semantic_similarity_score, 3),
@@ -253,6 +257,7 @@ class EnhancedContentAnalyzer:
             final_suggestions = all_opportunities[:self.max_suggestions]
             logger.info(f"Generated {len(final_suggestions)} final link suggestions (limit: {self.max_suggestions}).")
 
+            # Pass the list of dicts with string URLs to the success formatter
             return self._format_success_response(analysis_result, final_suggestions, start_time)
 
         except Exception as e:
@@ -267,24 +272,32 @@ class EnhancedContentAnalyzer:
             fashion_analysis = self.fashion_analyzer.analyze_content(content, title)
             # 2. Semantic context analysis (may use NLTK, ensure data downloaded)
             semantic_analysis = self.semantic_analyzer.analyze_content(content, title)
-            
+
+            # Combine results safely using .get()
             return {
                     "fashion_entities": fashion_analysis.get("entities", {}),
                     "primary_theme": fashion_analysis.get("primary_theme"),
                     "semantic_structure": semantic_analysis.get("structure", {}),
-                    "primary_topic": semantic_analysis.get("primary_topic"),
-                    "subtopics": semantic_analysis.get("subtopics", [])
+                    "primary_topic": semantic_analysis.get("primary_topic"), # Check source of this
+                    "subtopics": semantic_analysis.get("subtopics", []) # Check source of this
+                    # Add other results from semantic_analysis if needed
                 }
          except Exception as e:
               logger.error(f"Error during basic analysis sub-step: {e}", exc_info=True)
-              return {"error": "Failed during basic analysis"}
+              # Return a dict consistent with expected structure but indicate error
+              return {
+                  "fashion_entities": {}, "primary_theme": None, "semantic_structure": {},
+                  "primary_topic": None, "subtopics": [], "error": "Failed during basic analysis"
+              }
 
 
     def _generate_embedding(self, text: str) -> Optional[np.ndarray]:
          """Generates embedding for the given text using the loaded global model."""
          if sentence_transformer_model is None:
+             logger.warning("Cannot generate embedding: Sentence transformer model not loaded.")
              return None
          if not text or not isinstance(text, str):
+             logger.warning(f"Cannot generate embedding for invalid text: {text}")
              return None
          try:
              # Models often work best on sentences or short paragraphs.
@@ -305,7 +318,9 @@ class EnhancedContentAnalyzer:
                  from nltk.corpus import stopwords
                  stop_words = set(stopwords.words('english'))
             except ImportError:
-                 stop_words = {"a", "an", "the", "in", "on", "at", "for", "to", "of", "and", "or", "is", "are", "how"} # Basic list
+                 # This should not happen if NLTK download worked in Dockerfile
+                 logger.warning("NLTK stopwords not found, using basic list.")
+                 stop_words = {"a", "an", "the", "in", "on", "at", "for", "to", "of", "and", "or", "is", "are", "how"}
 
             words = re.findall(r'\b\w+\b', title.lower())
             keywords = [word for word in words if len(word) > 2 and word not in stop_words]
@@ -315,16 +330,16 @@ class EnhancedContentAnalyzer:
              logger.warning(f"Could not extract keywords from title '{title}': {e}")
              return title.lower().split() # Fallback
 
-    def _format_success_response(self, analysis_result: Dict, suggestions: List, start_time: datetime) -> Dict:
-         """Formats a successful analysis response."""
+    def _format_success_response(self, analysis_result: Dict, suggestions: List[Dict], start_time: datetime) -> Dict:
+         """Formats a successful analysis response. Expects suggestions with string URLs."""
          processing_time = (datetime.now() - start_time).total_seconds()
          return {
                 "analysis": analysis_result,
-                "link_suggestions": suggestions,
+                "link_suggestions": suggestions, # Pass suggestions with string URLs
                 "processing_time": round(processing_time, 3),
                 "status": "success"
             }
-        
+
     def _format_error_response(self, error_message: str) -> Dict:
         """Formats an error response."""
         return {
