@@ -15,8 +15,6 @@ services:
         value: False
       - key: LOG_LEVEL
         value: INFO
-      - key: MAX_WORKERS
-        value: 4
       - key: NLTK_DATA
         value: /app/nltk_data
       - key: PYTHONUNBUFFERED

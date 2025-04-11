@@ -2,106 +2,100 @@ from src.core.analyzer import ContentAnalyzer
 from typing import List, Dict, Any, Optional
 import logging
 import time
+from pydantic import HttpUrl # Added for type hint consistency
 
 logger = logging.getLogger("web_analyzer_api.integration")
 
 # Initialize analyzer
-analyzer = ContentAnalyzer()
+# Assuming ContentAnalyzer uses default config path relative to project root
+# Or adjust if it needs specific path relative to this file
+try:
+    # Assuming config.json is at project root
+    analyzer = ContentAnalyzer(config_path="config.json")
+    logger.info("ContentAnalyzer instance created for integration.")
+except Exception as e:
+    logger.error(f"Failed to initialize ContentAnalyzer in integration module: {e}", exc_info=True)
+    analyzer = None # Set to None to indicate failure
 
-async def analyze_content_task(content: str, title: str, site_id: str = None, url: Optional[str] = None) -> Dict[str, Any]:
+async def analyze_content_task(content: str, title: str, site_id: str = None, url: Optional[HttpUrl] = None) -> Dict[str, Any]:
     """
-    Process content analysis as an async task.
-    
-    This is where we integrate our existing analyzer logic.
+    Process content analysis using the simple ContentAnalyzer.
+
+    Args:
+        content: The content text.
+        title: The content title.
+        site_id: Identifier for the site (currently unused by simple analyzer).
+        url: URL of the content being analyzed (currently unused by simple analyzer).
+
+    Returns:
+        A dictionary containing the analysis results or an error.
     """
     start_time = time.time()
-    logger.info(f"Starting content analysis for: {title} (site: {site_id})")
+    logger.info(f"Starting SIMPLE content analysis for: {title} (site: {site_id})")
+
+    if analyzer is None:
+        logger.error("ContentAnalyzer failed to initialize. Cannot process request.")
+        return {
+                "analysis": {}, "link_suggestions": [], "processing_time": 0,
+                "status": "error", "error": "Simple Analyzer initialization failed"
+            }
 
     try:
-        # In production, we would load target URLs from the site's WordPress instance
-        # For now, we'll use target URLs that vary slightly based on site ID
-        
-        # If site_id is 'default' or None, use default target URLs
-        # Otherwise, we could customize this based on the site_id
-        # In a real implementation, we'd query each site's content from their WordPress database
-        
-        # Common target URLs for all sites
-        target_urls = [
-            {
-                "url": "https://thevou.com/blog/complete-old-money-fashion-guide-for-young-men/",
-                "title": "Complete Old Money Fashion Guide for Young Men"
-            },
-            {
-                "url": "https://thevou.com/blog/old-money-hairstyle-guide/",
-                "title": "Old Money Hairstyle Guide for Gentlemen"
-            },
-            {
-                "url": "https://thevou.com/blog/preppy-ivy-league-style-guide/",
-                "title": "Preppy Ivy League Style Guide for Modern Men"
-            },
-            {
-                "url": "https://thevou.com/blog/colour-analysis-for-men/",
-                "title": "Complete Colour Analysis Guide for Men's Wardrobe"
-            },
-            {
-                "url": "https://thevou.com/blog/true-spring-colour-palette-men/",
-                "title": "True Spring Colour Palette Guide for Men's Fashion"
-            },
-            {
-                "url": "https://thevou.com/blog/inverted-triangle-body-shape-styling/",
-                "title": "How to Dress for Inverted Triangle Body Shape - Men's Guide"
-            },
-            {
-                "url": "https://thevou.com/blog/oxford-shirts-style-guide/",
-                "title": "How to Style Oxford Shirts for Every Occasion - Men's Styling Guide"
-            },
-            {
-                "url": "https://thevou.com/blog/mens-fashion-style-tips/",
-                "title": "Essential Fashion Style Tips for Men in 2025"
-            },
-            {
-                "url": "https://thevou.com/blog/capsule-wardrobe-guide-men/",
-                "title": "How to Create a Versatile Capsule Wardrobe for Men"
-            },
-            {
-                "url": "https://thevou.com/blog/tailored-suit-guide-men/",
-                "title": "Complete Guide to Tailored Suits for Gentlemen"
-            }
-        ]
-
-        # Run the analysis
-        opportunities = analyzer.analyze_content(content, title, target_urls)
+        # Run the analysis - Simple analyzer doesn't technically need target URLs for its logic,
+        # but the current method signature requires it. Pass an empty list.
+        opportunities = analyzer.analyze_content(content, title, [])
 
         # Convert to API response format
         link_suggestions = []
 
+        # The simple analyzer's output format for `opportunities` needs confirmation.
+        # Based on ContentAnalyzer code, it returns a list of dicts like:
+        # { 'paragraph_index': int, 'target_url': str, 'target_title': str, 'relevance': float,
+        #   'anchor_text': str, 'anchor_context': str, 'anchor_confidence': float }
         for opp in opportunities:
-            # Get best anchor option
-            if opp["anchor_options"]:
-                best_anchor = opp["anchor_options"][0]
+            # Validate required fields exist before appending
+            if all(k in opp for k in ["anchor_text", "target_url", "anchor_confidence", "paragraph_index"]):
+                 # Convert target_url back to HttpUrl for schema consistency if needed,
+                 # but schema expects str? Let's check schema.
+                 # LinkSuggestion expects HttpUrl. Need conversion.
+                 target_url_obj = None
+                 try:
+                      target_url_obj = HttpUrl(opp["target_url"])
+                 except Exception:
+                      logger.warning(f"Could not validate target URL: {opp['target_url']}. Skipping suggestion.")
+                      continue
 
-                link_suggestions.append({
-                    "anchor_text": best_anchor["text"],
-                    "target_url": opp["target_url"],
-                    "context": best_anchor["context"],
-                    "confidence": best_anchor["confidence"],
-                    "paragraph_index": opp["paragraph_index"]
-                })
+                 link_suggestions.append({
+                    "anchor_text": opp["anchor_text"],
+                    "target_url": target_url_obj,
+                    "context": opp.get("anchor_context", ""), # Use .get() for optional field
+                    "confidence": opp["anchor_confidence"],
+                    "paragraph_index": opp["paragraph_index"],
+                    "relevance": opp.get("relevance") # Include relevance if available
+                 })
+            else:
+                logger.warning(f"Opportunity found with missing required fields: {opp}")
+
 
         processing_time = time.time() - start_time
-        logger.info(f"Analysis completed in {processing_time:.2f} seconds. Found {len(link_suggestions)} suggestions.")
+        logger.info(f"Simple Analysis completed in {processing_time:.2f} seconds. Found {len(link_suggestions)} suggestions.")
 
+        # Construct response matching AnalysisResponse schema
+        # Simple analyzer doesn't produce the detailed 'analysis' dict like Enhanced one.
         return {
+            "analysis": {}, # Return empty analysis dict
             "link_suggestions": link_suggestions,
-            "processing_time": processing_time,
+            "processing_time": round(processing_time, 3),
             "status": "success"
         }
 
     except Exception as e:
-        logger.error(f"Error in analysis task: {str(e)}")
+        logger.error(f"Error in simple analysis task: {str(e)}", exc_info=True)
+        # Return error structure consistent with AnalysisResponse schema
         return {
+            "analysis": {},
             "link_suggestions": [],
-            "processing_time": time.time() - start_time,
+            "processing_time": round(time.time() - start_time, 3),
             "status": "error",
             "error": str(e)
         }

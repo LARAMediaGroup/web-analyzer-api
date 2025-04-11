@@ -7,6 +7,7 @@ This module integrates the enhanced content analyzer with the API.
 import logging
 import time
 from typing import List, Dict, Any, Optional
+from pydantic import HttpUrl # Added for type hints
 
 from src.core.enhanced_analyzer import EnhancedContentAnalyzer
 
@@ -26,7 +27,7 @@ async def analyze_content_enhanced(
     content: str,
     title: str,
     site_id: str,
-    url: Optional[str] = None
+    url: Optional[HttpUrl] = None # Use HttpUrl type hint
 ) -> Dict[str, Any]:
     """
     Analyzes content using the EnhancedContentAnalyzer.
@@ -35,12 +36,13 @@ async def analyze_content_enhanced(
         content: The content text.
         title: The content title.
         site_id: The identifier for the site.
-        url: The URL of the content being analyzed.
+        url: The URL of the content being analyzed (as HttpUrl).
 
     Returns:
         A dictionary containing the analysis results or an error.
     """
-    logger.info(f"Enhanced Integration: Received analysis request for site '{site_id}', title '{title}', url '{url}'")
+    url_str = str(url) if url else None # Analyzer expects string URL
+    logger.info(f"Enhanced Integration: Received analysis request for site '{site_id}', title '{title}', url '{url_str}'")
 
     if analyzer is None:
         logger.error("EnhancedContentAnalyzer failed to initialize. Cannot process request.")
@@ -52,13 +54,26 @@ async def analyze_content_enhanced(
 
     try:
         # Call the analyzer's main method, passing all required parameters
+        # Analyzer expects string URL
         analysis_result = await analyzer.analyze_content(
             content=content,
             title=title,
             site_id=site_id,
-            url=url
+            url=url_str
         )
         logger.info(f"Enhanced Integration: Analysis complete for site '{site_id}', title '{title}'. Status: {analysis_result.get('status')}")
+
+        # Convert target_url strings in suggestions back to HttpUrl for schema validation
+        if "link_suggestions" in analysis_result:
+            valid_suggestions = []
+            for sugg in analysis_result["link_suggestions"]:
+                try:
+                    sugg["target_url"] = HttpUrl(sugg["target_url"])
+                    valid_suggestions.append(sugg)
+                except Exception as url_val_err:
+                    logger.warning(f"Invalid target URL '{sugg.get('target_url')}' in suggestion. Skipping. Error: {url_val_err}")
+            analysis_result["link_suggestions"] = valid_suggestions
+
         return analysis_result
 
     except Exception as e:
@@ -68,65 +83,3 @@ async def analyze_content_enhanced(
                 "analysis": {}, "link_suggestions": [], "processing_time": 0,
                 "status": "error", "error": f"Internal error during enhanced analysis integration: {str(e)}"
             }
-
-def get_target_urls_for_site(site_id: Optional[str] = None) -> List[Dict[str, str]]:
-    """
-    Get target URLs for a specific site.
-    
-    Args:
-        site_id (str, optional): The site identifier
-    
-    Returns:
-        List[Dict[str, str]]: List of target URLs with title
-    """
-    # Default target URLs (same as before)
-    default_urls = [
-        {
-            "url": "https://thevou.com/blog/complete-old-money-fashion-guide-for-young-men/",
-            "title": "Complete Old Money Fashion Guide for Young Men"
-        },
-        {
-            "url": "https://thevou.com/blog/old-money-hairstyle-guide/",
-            "title": "Old Money Hairstyle Guide for Gentlemen"
-        },
-        {
-            "url": "https://thevou.com/blog/preppy-ivy-league-style-guide/",
-            "title": "Preppy Ivy League Style Guide for Modern Men"
-        },
-        {
-            "url": "https://thevou.com/blog/colour-analysis-for-men/",
-            "title": "Complete Colour Analysis Guide for Men's Wardrobe"
-        },
-        {
-            "url": "https://thevou.com/blog/true-spring-colour-palette-men/",
-            "title": "True Spring Colour Palette Guide for Men's Fashion"
-        },
-        {
-            "url": "https://thevou.com/blog/inverted-triangle-body-shape-styling/",
-            "title": "How to Dress for Inverted Triangle Body Shape - Men's Guide"
-        },
-        {
-            "url": "https://thevou.com/blog/oxford-shirts-style-guide/",
-            "title": "How to Style Oxford Shirts for Every Occasion - Men's Styling Guide"
-        },
-        {
-            "url": "https://thevou.com/blog/mens-fashion-style-tips/",
-            "title": "Essential Fashion Style Tips for Men in 2025"
-        },
-        {
-            "url": "https://thevou.com/blog/capsule-wardrobe-guide-men/",
-            "title": "How to Create a Versatile Capsule Wardrobe for Men"
-        },
-        {
-            "url": "https://thevou.com/blog/tailored-suit-guide-men/",
-            "title": "Complete Guide to Tailored Suits for Gentlemen"
-        }
-    ]
-    
-    # If site_id is "thevou" or None, use default URLs
-    if not site_id or site_id == "thevou":
-        return default_urls
-    
-    # For other sites, we could implement site-specific logic
-    # For now, return a subset of the default URLs as an example
-    return default_urls[:5]

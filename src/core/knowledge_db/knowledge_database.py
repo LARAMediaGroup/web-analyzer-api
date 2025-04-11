@@ -17,6 +17,7 @@ import hashlib
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
+import pickle # Import pickle for embedding serialization
 
 # Configure logging
 logger = logging.getLogger("web_analyzer.knowledge_db")
@@ -29,11 +30,11 @@ try:
     # Define model name (can be made configurable later if needed)
     MODEL_NAME = 'all-MiniLM-L6-v2'
     logger.info(f"Loading sentence transformer model: {MODEL_NAME}...")
-    model = SentenceTransformer(MODEL_NAME)
+    global_embedding_model = SentenceTransformer(MODEL_NAME) # Use a distinct global name
     logger.info(f"Sentence transformer model '{MODEL_NAME}' loaded successfully.")
 except Exception as e:
     logger.error(f"CRITICAL: Failed to load sentence transformer model '{MODEL_NAME}'. Embeddings will not be generated. Error: {e}", exc_info=True)
-    model = None # Set model to None if loading fails
+    global_embedding_model = None # Set model to None if loading fails
 
 # Helper function (can be outside class or static method)
 def _calculate_cosine_similarity(embedding1: np.ndarray, embedding2: np.ndarray) -> float:
@@ -53,19 +54,19 @@ def _calculate_cosine_similarity(embedding1: np.ndarray, embedding2: np.ndarray)
 class KnowledgeDatabase:
     """
     Manages a database of content knowledge for generating internal linking suggestions.
-    
+
     This database stores analyzed content information including:
     - Content metadata (title, URL, etc.)
     - Extracted entities and topics
     - Semantic embeddings for relevance matching
-    
+
     The database enables matching between content pieces for suggestion generation.
     """
-    
+
     def __init__(self, config_path: str = "config.json", site_id: Optional[str] = None):
         """
         Initialize the knowledge database.
-        
+
         Args:
             config_path: Path to the configuration file (relative to project root)
             site_id: Optional site identifier for multi-site support
@@ -74,7 +75,7 @@ class KnowledgeDatabase:
         project_root = os.path.join(os.path.dirname(__file__), '..', '..', '..') # Navigate up from src/core/knowledge_db
         self.config = self._load_config(os.path.join(project_root, config_path))
         self.site_id = site_id or "default"
-        
+
         # Set up database path
         self.db_dir = self.config.get("knowledge_db_dir", "data/knowledge_db")
         # Ensure db_dir path is absolute or relative to project root
@@ -83,18 +84,18 @@ class KnowledgeDatabase:
 
         os.makedirs(self.db_dir, exist_ok=True)
         logger.info(f"Knowledge base directory: {self.db_dir}")
-        
+
         # Create site-specific database file
         self.db_path = os.path.join(self.db_dir, f"knowledge_{self.site_id}.db")
         logger.info(f"Knowledge base file path: {self.db_path}")
-        
+
         # Initialize database
         self._init_database()
-        
+
         # Thread lock for database operations
         self.db_lock = threading.Lock()
         logger.info(f"KnowledgeDatabase for site_id '{self.site_id}' initialized.")
-    
+
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """Load configuration from JSON file."""
         try:
@@ -119,13 +120,13 @@ class KnowledgeDatabase:
                 "cleanup_threshold": 0.9,
                 "embedding_text_field": "title"
             }
-    
+
     def _init_database(self) -> None:
         """Initialize the SQLite database for content knowledge."""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                
+
                 # Create content table
                 cursor.execute('''
                 CREATE TABLE IF NOT EXISTS content (
@@ -139,7 +140,7 @@ class KnowledgeDatabase:
                     updated_at TIMESTAMP
                 )
                 ''')
-                
+
                 # Create entities table
                 cursor.execute('''
                 CREATE TABLE IF NOT EXISTS entities (
@@ -151,7 +152,7 @@ class KnowledgeDatabase:
                     FOREIGN KEY (content_id) REFERENCES content(content_id)
                 )
                 ''')
-                
+
                 # Create topics table
                 cursor.execute('''
                 CREATE TABLE IF NOT EXISTS topics (
@@ -163,24 +164,24 @@ class KnowledgeDatabase:
                     FOREIGN KEY (content_id) REFERENCES content(content_id)
                 )
                 ''')
-                
+
                 # Create index on content_id for faster lookups
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_entities_content_id ON entities(content_id)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_topics_content_id ON topics(content_id)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_entities_type_value ON entities(entity_type, entity_value)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_topics_type_value ON topics(topic_type, topic_value)")
-                
+
                 conn.commit()
                 logger.info(f"Knowledge database initialized at {self.db_path}")
-        
+
         except Exception as e:
             logger.error(f"Error initializing database: {str(e)}")
             raise
-    
+
     def add_content(self, content_data: Dict[str, Any], embedding_bytes: Optional[bytes] = None) -> bool:
         """
         Add or update content in the knowledge database, optionally including its embedding.
-        
+
         Args:
             content_data: Dictionary with content data including:
                 - id: Content identifier
@@ -190,7 +191,7 @@ class KnowledgeDatabase:
                 - entities: Dictionary of entity lists by type
                 - topics: Dictionary of topic data
             embedding_bytes: Optional pre-generated embedding for the content (as bytes).
-                
+
         Returns:
             bool: Success status
         """
@@ -200,79 +201,64 @@ class KnowledgeDatabase:
             # If only 'content' changes and embedding_text_field='content',
             # hash might not change, but embedding should still be updated.
             content_hash = self._generate_content_hash(content_data)
-            
+
             with self.db_lock, sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                
+
                 content_id = str(content_data.get("id", ""))
                 url = str(content_data.get("url", ""))
-                content = content_data.get("content", "")
+                content = content_data.get("content", "") # Get content for potential use in hash? Not strictly needed now.
                 title = content_data.get("title", "")
-                published_date = content_data.get("published_date")
+                # published_date = content_data.get("published_date") # Variable not used
                 now = datetime.now().isoformat()
-                
-                # Generate embedding if content provided and analyser is available
-                if content and self.embedding_model:
-                    try:
-                        # Use the analyser's method if available, else generate directly
-                        if self.analyser and hasattr(self.analyser, '_generate_embedding'):
-                             embedding = self.analyser._generate_embedding(content)
-                             logger.debug(f"Generated embedding of shape {embedding.shape if embedding is not None else 'None'} via analyser for {content_id}")
-                        else:
-                            embedding = self._generate_embedding(content) # Fallback to direct generation
-                            logger.debug(f"Generated embedding of shape {embedding.shape if embedding is not None else 'None'} via KB method for {content_id}")
-                        
-                        if embedding is not None:
-                           embedding_bytes = self._embedding_to_bytes(embedding)
-                           logger.debug(f"Embedding converted to bytes (length: {len(embedding_bytes) if embedding_bytes else 0}) for {content_id}")
-                        else:
-                           logger.warning(f"Embedding generation returned None for {content_id}")
-                    except Exception as embed_error:
-                       logger.error(f"Error generating embedding for {content_id}: {embed_error}", exc_info=True)
-                       # Decide if we should proceed without embedding or fail
-                       # For now, proceeding without embedding
-                
+
                 # Check if content already exists
                 cursor.execute("SELECT hash, embedding FROM content WHERE content_id = ?", (content_id,))
                 existing = cursor.fetchone()
-                
+
+                embedding_updated_in_this_run = False # Flag to track if embedding was actually updated
+                needs_update = False # Flag to track if update/insert is needed
+
                 if existing:
                     existing_hash = existing[0]
                     existing_embedding = existing[1]
-                    
+
                     # Update if hash is different OR if we have a new embedding and the old one was missing
-                    if existing_hash != content_hash or (embedding_bytes is not None and existing_embedding is None):
+                    needs_update = existing_hash != content_hash or (embedding_bytes is not None and existing_embedding is None)
+
+                    if needs_update:
                         logger.debug(f"Updating content {content_id}. Hash changed: {existing_hash != content_hash}. New embedding provided while old was missing: {embedding_bytes is not None and existing_embedding is None}")
-                        
+
                         update_query = """
-                           UPDATE content 
-                           SET title = ?, url = ?, hash = ?, updated_at = ? 
+                           UPDATE content
+                           SET title = ?, url = ?, hash = ?, updated_at = ?
                            WHERE content_id = ?"""
                         params = [title, str(url), content_hash, now, content_id] # Ensure url is string for UPDATE
 
-                        # Only update embedding if it was successfully generated
+                        # Only update embedding if it was successfully provided
                         if embedding_bytes is not None:
                            update_query = """
-                               UPDATE content 
-                               SET title = ?, url = ?, hash = ?, embedding = ?, updated_at = ? 
+                               UPDATE content
+                               SET title = ?, url = ?, hash = ?, embedding = ?, updated_at = ?
                                WHERE content_id = ?"""
                            params = [title, str(url), content_hash, embedding_bytes, now, content_id] # Ensure url is string for UPDATE
-                           embedding_updated = True # Embedding is updated/set here
+                           embedding_updated_in_this_run = True # Embedding is updated/set here
 
                         cursor.execute(update_query, tuple(params))
 
                         # Delete existing entity and topic data before re-inserting
                         cursor.execute("DELETE FROM entities WHERE content_id = ?", (content_id,))
                         cursor.execute("DELETE FROM topics WHERE content_id = ?", (content_id,))
-                        
+
                     else:
-                        logger.info(f"Content {content_id} hash matches and embedding status is unchanged. Skipping content/embedding update, checking entities/topics.")
+                        logger.debug(f"Content {content_id} hash matches and embedding status is unchanged. Skipping content/embedding update, checking entities/topics.")
                         # Even if content/embedding isn't updated, we might need to update entities/topics
                         # Delete existing entity and topic data before re-inserting IF they are provided in content_data
                         if "entities" in content_data or "topics" in content_data:
                              logger.debug(f"Updating entities/topics for {content_id} as they were provided.")
                              cursor.execute("DELETE FROM entities WHERE content_id = ?", (content_id,))
                              cursor.execute("DELETE FROM topics WHERE content_id = ?", (content_id,))
+                             needs_update = True # Mark that we need to add entities/topics below
                         else:
                              logger.debug(f"No entities/topics provided for {content_id}, skipping delete/re-insert.")
                              conn.commit() # Need to commit if we are returning early
@@ -283,112 +269,122 @@ class KnowledgeDatabase:
                     # Insert new content record - include embedding if available
                     logger.debug(f"Inserting new content record for {content_id}. Embedding provided: {embedding_bytes is not None}")
                     cursor.execute(
-                        """INSERT INTO content 
-                           (content_id, title, url, hash, embedding, created_at, updated_at) 
+                        """INSERT INTO content
+                           (content_id, title, url, hash, embedding, created_at, updated_at)
                            VALUES (?, ?, ?, ?, ?, ?, ?)""",
                         (content_id, title, str(url), content_hash, embedding_bytes, now, now) # Ensure url is string for INSERT
                     )
                     if embedding_bytes is not None:
-                        embedding_updated = True # Embedding is inserted here
-                
-                # Add entity data (only if entities were provided)
-                entities = content_data.get("entities")
-                if entities is not None: # Check if the key exists and is not None
-                    for entity_type, entity_list in entities.items():
-                        for entity_value in entity_list:
-                            # Handle if entity is dict with confidence or just a string
-                            if isinstance(entity_value, dict):
-                                value = entity_value.get("value", "")
-                                confidence = entity_value.get("confidence", 1.0)
-                            else:
-                                value = entity_value
-                                confidence = 1.0
-                            
-                            cursor.execute(
-                                "INSERT INTO entities (content_id, entity_type, entity_value, confidence) VALUES (?, ?, ?, ?)",
-                                (content_id, entity_type, value, confidence)
-                            )
-                
-                # Add topic data (only if topics were provided)
-                topics = content_data.get("topics")
-                if topics is not None: # Check if the key exists and is not None
-                    for topic_type, topic_list in topics.items():
-                        for topic_data in topic_list:
-                            # Handle if topic is dict with weight or just a string
-                            if isinstance(topic_data, dict):
-                                value = topic_data.get("value", "")
-                                weight = topic_data.get("weight", 1.0)
-                            else:
-                                value = topic_data
-                                weight = 1.0
-                            
-                            cursor.execute(
-                                "INSERT INTO topics (content_id, topic_type, topic_value, weight) VALUES (?, ?, ?, ?)",
-                                (content_id, topic_type, value, weight)
-                            )
-                
+                        embedding_updated_in_this_run = True # Embedding is inserted here
+                    needs_update = True # We inserted, so need to add entities/topics
+
+                # Add entity/topic data only if an insert or update occurred
+                if needs_update:
+                    # Add entity data (only if entities were provided)
+                    entities = content_data.get("entities")
+                    if entities is not None: # Check if the key exists and is not None
+                        for entity_type, entity_list in entities.items():
+                            for entity_value in entity_list:
+                                # Handle if entity is dict with confidence or just a string
+                                if isinstance(entity_value, dict):
+                                    value = entity_value.get("value", "")
+                                    confidence = entity_value.get("confidence", 1.0)
+                                else:
+                                    value = entity_value
+                                    confidence = 1.0
+
+                                cursor.execute(
+                                    "INSERT INTO entities (content_id, entity_type, entity_value, confidence) VALUES (?, ?, ?, ?)",
+                                    (content_id, entity_type, value, confidence)
+                                )
+
+                    # Add topic data (only if topics were provided)
+                    topics = content_data.get("topics")
+                    if topics is not None: # Check if the key exists and is not None
+                        for topic_type, topic_list in topics.items():
+                            for topic_data in topic_list:
+                                # Handle if topic is dict with weight or just a string
+                                if isinstance(topic_data, dict):
+                                    value = topic_data.get("value", "")
+                                    weight = topic_data.get("weight", 1.0)
+                                else:
+                                    value = topic_data
+                                    weight = 1.0
+
+                                cursor.execute(
+                                    "INSERT INTO topics (content_id, topic_type, topic_value, weight) VALUES (?, ?, ?, ?)",
+                                    (content_id, topic_type, value, weight)
+                                )
+
                 conn.commit()
-                if existing and not embedding_updated and existing_hash == content_hash and ("entities" not in content_data and "topics" not in content_data):
-                    # This case covers when hash matches, embedding wasn't updated/missing, and no new entities/topics provided
-                     logger.info(f"Content {content_id} already up-to-date in knowledge database.")
-                elif embedding_updated:
-                    logger.info(f"Content {content_id} {'updated' if existing else 'added'} in knowledge database (including embedding and any provided entities/topics).")
+
+                # Refined logging based on what actually happened
+                action = "updated" if existing else "added"
+                if needs_update or not existing: # If insert happened OR update needed changing content/embedding
+                     if embedding_updated_in_this_run:
+                          log_msg = f"Content {content_id} {action} in knowledge database (including embedding and any provided entities/topics)."
+                     else:
+                          log_msg = f"Content {content_id} {action} in knowledge database (embedding not included/updated, entities/topics updated if provided)."
+                     logger.info(log_msg)
+                elif "entities" in content_data or "topics" in content_data:
+                     # This covers case where only entities/topics were updated
+                     logger.info(f"Content {content_id} entities/topics updated in knowledge database.")
                 else:
-                     # This case handles: new item without embedding, or existing item updated (metadata/entities/topics) but embedding wasn't or couldn't be
-                     logger.info(f"Content {content_id} {'updated' if existing else 'added'} in knowledge database (embedding not included/updated, entities/topics updated if provided).")
+                     # This covers the case where nothing needed changing
+                     logger.info(f"Content {content_id} already up-to-date in knowledge database.")
 
                 # Check if cleanup is needed
                 self._check_cleanup_needed(cursor)
-                
+
                 return True
-        
+
         except Exception as e:
             logger.error(f"Error adding/updating content {content_data.get('id', 'N/A')} to knowledge database: {str(e)}", exc_info=True)
             return False
-    
+
     def remove_content(self, content_id: str) -> bool:
         """
         Remove content from the knowledge database.
-        
+
         Args:
             content_id: The content identifier
-            
+
         Returns:
             bool: Success status
         """
         try:
             with self.db_lock, sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                
+
                 # Delete entity and topic data
                 cursor.execute("DELETE FROM entities WHERE content_id = ?", (content_id,))
                 cursor.execute("DELETE FROM topics WHERE content_id = ?", (content_id,))
-                
+
                 # Delete content record
                 cursor.execute("DELETE FROM content WHERE content_id = ?", (content_id,))
-                
+
                 conn.commit()
                 logger.info(f"Content {content_id} removed from knowledge database")
                 return True
-        
+
         except Exception as e:
             logger.error(f"Error removing content from knowledge database: {str(e)}")
             return False
-    
+
     def find_related_content(
-        self, 
+        self,
         content_data: Dict[str, Any],
         max_results: int = 15,
         min_relevance: float = 0.3
     ) -> List[Dict[str, Any]]:
         """
         Find related content based on entities and topics.
-        
+
         Args:
             content_data: Dictionary with content data
             max_results: Maximum number of results to return
             min_relevance: Minimum relevance score (0-1)
-            
+
         Returns:
             List of related content items with relevance scores
         """
@@ -396,7 +392,7 @@ class KnowledgeDatabase:
             content_id = str(content_data.get("id", ""))
             entities = content_data.get("entities", {})
             topics = content_data.get("topics", {})
-            
+
             # Prepare entity and topic values for matching
             entity_values = []
             for entity_list in entities.values():
@@ -405,7 +401,7 @@ class KnowledgeDatabase:
                         entity_values.append(entity.get("value", ""))
                     else:
                         entity_values.append(entity)
-            
+
             topic_values = []
             for topic_list in topics.values():
                 for topic in topic_list:
@@ -413,20 +409,20 @@ class KnowledgeDatabase:
                         topic_values.append(topic.get("value", ""))
                     else:
                         topic_values.append(topic)
-            
+
             with self.db_lock, sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
-                
+
                 # Get all content except current
                 cursor.execute("SELECT content_id, title, url FROM content WHERE content_id != ?", (content_id,))
                 all_content = cursor.fetchall()
-                
+
                 results = []
-                
+
                 for content in all_content:
                     other_id = content["content_id"]
-                    
+
                     # Get entity matches
                     entity_score = 0.0
                     for entity_value in entity_values:
@@ -436,7 +432,7 @@ class KnowledgeDatabase:
                         )
                         match_count = cursor.fetchone()[0]
                         entity_score += 0.1 * min(match_count, 5)  # Cap at 0.5
-                    
+
                     # Get topic matches
                     topic_score = 0.0
                     for topic_value in topic_values:
@@ -446,10 +442,10 @@ class KnowledgeDatabase:
                         )
                         match_count = cursor.fetchone()[0]
                         topic_score += 0.15 * min(match_count, 4)  # Cap at 0.6
-                    
+
                     # Calculate total relevance
                     relevance = min(entity_score + topic_score, 1.0)
-                    
+
                     # Only include if above minimum relevance
                     if relevance >= min_relevance:
                         results.append({
@@ -458,22 +454,22 @@ class KnowledgeDatabase:
                             "url": content["url"],
                             "relevance": relevance
                         })
-                
+
                 # Sort by relevance (highest first) and limit results
                 results.sort(key=lambda x: x["relevance"], reverse=True)
                 return results[:max_results]
-        
+
         except Exception as e:
             logger.error(f"Error finding related content: {str(e)}")
             return []
-    
+
     def get_all_content(self, limit: int = 100) -> List[Dict[str, Any]]:
         """
         Get all content in the knowledge database.
-        
+
         Args:
             limit: Maximum number of results
-            
+
         Returns:
             List of content items
         """
@@ -481,12 +477,12 @@ class KnowledgeDatabase:
             with self.db_lock, sqlite3.connect(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
-                
+
                 cursor.execute(
                     "SELECT content_id, title, url FROM content ORDER BY updated_at DESC LIMIT ?",
                     (limit,)
                 )
-                
+
                 results = []
                 for row in cursor.fetchall():
                     results.append({
@@ -494,17 +490,17 @@ class KnowledgeDatabase:
                         "title": row["title"],
                         "url": row["url"]
                     })
-                
+
                 return results
-        
+
         except Exception as e:
             logger.error(f"Error getting all content: {str(e)}")
             return []
-    
+
     def get_content_count(self) -> int:
         """
         Get the count of content items in the database.
-        
+
         Returns:
             int: Count of content items
         """
@@ -513,46 +509,46 @@ class KnowledgeDatabase:
                 cursor = conn.cursor()
                 cursor.execute("SELECT COUNT(*) FROM content")
                 return cursor.fetchone()[0]
-        
+
         except Exception as e:
             logger.error(f"Error getting content count: {str(e)}")
             return 0
-    
+
     def get_database_stats(self) -> Dict[str, Any]:
         """
         Get statistics about the knowledge database.
-        
+
         Returns:
             Dictionary with database statistics
         """
         try:
             with self.db_lock, sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                
+
                 # Get content count
                 cursor.execute("SELECT COUNT(*) FROM content")
                 content_count = cursor.fetchone()[0]
-                
+
                 # Get entity count
                 cursor.execute("SELECT COUNT(*) FROM entities")
                 entity_count = cursor.fetchone()[0]
-                
+
                 # Get topic count
                 cursor.execute("SELECT COUNT(*) FROM topics")
                 topic_count = cursor.fetchone()[0]
-                
+
                 # Get unique entities
                 cursor.execute("SELECT COUNT(DISTINCT entity_value) FROM entities")
                 unique_entities = cursor.fetchone()[0]
-                
+
                 # Get unique topics
                 cursor.execute("SELECT COUNT(DISTINCT topic_value) FROM topics")
                 unique_topics = cursor.fetchone()[0]
-                
+
                 # Get most recent update
                 cursor.execute("SELECT MAX(updated_at) FROM content")
                 last_update = cursor.fetchone()[0]
-                
+
                 return {
                     "content_count": content_count,
                     "entity_count": entity_count,
@@ -562,11 +558,11 @@ class KnowledgeDatabase:
                     "last_update": last_update,
                     "database_size_kb": self._get_database_size() // 1024
                 }
-        
+
         except Exception as e:
             logger.error(f"Error getting database stats: {str(e)}")
             return {}
-    
+
     def _generate_content_hash(self, content_data: Dict[str, Any]) -> str:
         """Generate a hash for the content data."""
         data_to_hash = {
@@ -574,10 +570,10 @@ class KnowledgeDatabase:
             "entities": content_data.get("entities", {}),
             "topics": content_data.get("topics", {})
         }
-        
+
         json_str = json.dumps(data_to_hash, sort_keys=True)
         return hashlib.md5(json_str.encode()).hexdigest()
-    
+
     def _get_database_size(self) -> int:
         """Get the size of the database file in bytes."""
         try:
@@ -586,66 +582,67 @@ class KnowledgeDatabase:
             return 0
         except Exception:
             return 0
-    
+
     def _check_cleanup_needed(self, cursor) -> None:
         """Check if database cleanup is needed and perform it if necessary."""
         try:
             # Get content count
             cursor.execute("SELECT COUNT(*) FROM content")
             content_count = cursor.fetchone()[0]
-            
+
             # Check if we've exceeded threshold
             max_entries = self.config.get("max_entries", 10000)
             cleanup_threshold = self.config.get("cleanup_threshold", 0.9)
             threshold_count = int(max_entries * cleanup_threshold)
-            
+
             if content_count > threshold_count:
                 logger.info(f"Content count {content_count} exceeds threshold {threshold_count}, performing cleanup")
                 self._perform_cleanup(cursor)
-        
+
         except Exception as e:
             logger.error(f"Error checking cleanup need: {str(e)}")
-    
+
     def _perform_cleanup(self, cursor) -> None:
         """Remove oldest content to keep database size manageable."""
         try:
             # Get content count
             cursor.execute("SELECT COUNT(*) FROM content")
             content_count = cursor.fetchone()[0]
-            
+
             # Calculate how many to remove
             max_entries = self.config.get("max_entries", 10000)
             target_count = int(max_entries * 0.8)  # Remove enough to get down to 80%
             to_remove = content_count - target_count
-            
+
             if to_remove <= 0:
                 return
-            
+
             # Get oldest content IDs
             cursor.execute(
                 "SELECT content_id FROM content ORDER BY updated_at ASC LIMIT ?",
                 (to_remove,)
             )
-            
+
             # Remove each content item
-            for row in cursor.fetchall():
-                content_id = row[0]
-                
+            ids_to_remove = [row[0] for row in cursor.fetchall()]
+            logger.info(f"Removing {len(ids_to_remove)} oldest content items from knowledge database: {ids_to_remove}")
+
+            for content_id in ids_to_remove:
                 # Delete entity and topic data
                 cursor.execute("DELETE FROM entities WHERE content_id = ?", (content_id,))
                 cursor.execute("DELETE FROM topics WHERE content_id = ?", (content_id,))
-                
+
                 # Delete content record
                 cursor.execute("DELETE FROM content WHERE content_id = ?", (content_id,))
-            
-            logger.info(f"Removed {to_remove} oldest content items from knowledge database")
-        
+
+            logger.info(f"Finished removing {len(ids_to_remove)} oldest content items.")
+
         except Exception as e:
             logger.error(f"Error performing cleanup: {str(e)}")
 
-    def _generate_embedding(self, text: str) -> Optional[bytes]:
-         """Generates embedding for the given text and returns it as bytes."""
-         if model is None:
+    def _generate_embedding(self, text: str) -> Optional[np.ndarray]:
+         """Generates embedding for the given text using the global model."""
+         if global_embedding_model is None:
              logger.warning("Sentence transformer model not loaded. Cannot generate embedding.")
              return None
          if not text or not isinstance(text, str):
@@ -655,14 +652,24 @@ class KnowledgeDatabase:
          try:
              logger.debug(f"Generating embedding for text snippet: '{text[:100]}...'")
              # Ensure model expects a list of sentences or single sentence
-             embedding_vector = model.encode(text, convert_to_numpy=True)
-             # Convert numpy array to bytes for storing in BLOB
-             embedding_bytes = embedding_vector.tobytes()
-             logger.debug(f"Generated embedding of size {len(embedding_bytes)} bytes.")
-             return embedding_bytes
+             embedding_vector = global_embedding_model.encode(text, convert_to_numpy=True)
+             logger.debug(f"Generated embedding of shape {embedding_vector.shape}.")
+             return embedding_vector
          except Exception as e:
              logger.error(f"Error generating embedding for text '{text[:100]}...': {e}", exc_info=True)
              return None
+
+    # --- ADDED HELPER METHOD ---
+    def _embedding_to_bytes(self, embedding: np.ndarray) -> Optional[bytes]:
+         """Converts a NumPy embedding array to bytes using pickle."""
+         if embedding is None:
+             return None
+         try:
+             return pickle.dumps(embedding)
+         except Exception as e:
+             logger.error(f"Error serializing embedding to bytes: {e}", exc_info=True)
+             return None
+    # --- END ADDED HELPER METHOD ---
 
     def get_all_content_with_embeddings(self, exclude_url: Optional[str] = None) -> List[Dict[str, Any]]:
         """
@@ -693,7 +700,7 @@ class KnowledgeDatabase:
 
                 if exclude_url:
                     query += " AND url != ?"
-                    params.append(exclude_url)
+                    params.append(str(exclude_url)) # Ensure URL is string for comparison
 
                 cursor.execute(query, params)
 
@@ -707,11 +714,13 @@ class KnowledgeDatabase:
                          continue
 
                     try:
-                        # Deserialize blob back to NumPy array
-                        # Assuming dtype=float32 based on common sentence-transformer usage
-                        # This dtype might need adjustment if the saving process uses something else
-                        # TODO: Determine the exact dtype used during embedding generation/saving
-                        embedding_vector = np.frombuffer(embedding_blob, dtype=np.float32)
+                        # Deserialize blob back to NumPy array using pickle
+                        embedding_vector = pickle.loads(embedding_blob)
+
+                        # Basic check for numpy array structure after unpickling
+                        if not isinstance(embedding_vector, np.ndarray):
+                             logger.warning(f"Deserialized embedding for {row['content_id']} is not a numpy array (type: {type(embedding_vector)}). Skipping.")
+                             continue
 
                         results.append({
                             "content_id": row["content_id"],
@@ -719,9 +728,12 @@ class KnowledgeDatabase:
                             "url": row["url"],
                             "embedding": embedding_vector
                         })
-                    except Exception as deser_error:
+                    except pickle.UnpicklingError as deser_error:
                          # Log error during deserialization but continue with others
-                         logger.error(f"Failed to deserialize embedding for content_id {row['content_id']}: {deser_error}", exc_info=True)
+                         logger.error(f"Failed to deserialize embedding for content_id {row['content_id']} using pickle: {deser_error}", exc_info=False) # Keep log concise
+                    except Exception as general_deser_error:
+                         logger.error(f"Unexpected error deserializing embedding for content_id {row['content_id']}: {general_deser_error}", exc_info=True)
+
 
             logger.info(f"Successfully retrieved and deserialized {len(results)} content items with embeddings.")
             return results

@@ -13,9 +13,8 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy NLTK downloader script and run it
-COPY download_nltk.py .
-RUN python download_nltk.py
+# Download required NLTK data directly to the NLTK_DATA directory
+RUN python -m nltk.downloader -d /app/nltk_data punkt stopwords wordnet averaged_perceptron_tagger maxent_ne_chunker words
 
 # Copy the application code
 COPY src/ ./src/
