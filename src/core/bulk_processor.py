@@ -443,9 +443,9 @@ class BulkContentProcessor:
             else:
                 # --- Core Processing ---
                 # 1. Perform basic analysis (required for KB)
-                # Pass original URL object if analyzer expects it
                 # NOTE: Analyzer instance here is self.analyzer (EnhancedContentAnalyzer)
-                analysis_for_kb = self.analyzer._perform_basic_analysis(content, title, url=url)
+                # REMOVED url=url argument as _perform_basic_analysis doesn't accept it
+                analysis_for_kb = self.analyzer._perform_basic_analysis(content, title)
                 analysis_output = analysis_for_kb # Store this analysis
 
                 # 2. Generate embedding (based on config field)
