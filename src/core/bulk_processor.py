@@ -548,9 +548,14 @@ class BulkContentProcessor:
                 else:
                     logger.info(f"Knowledge building mode ON. Skipping suggestions for {item_id}.")
 
-                # If we reached here without exception in the main logic block
-                result_status = "success"
-                error_message = None # Clear default error
+                # Check if suggestion generation failed and update status if needed
+                if suggestion_error_msg:
+                    result_status = "error"
+                    error_message = suggestion_error_msg # Overwrite previous error message if suggestion failed
+                else:
+                    # If we reached here without exception in the main logic block AND suggestion didn't fail
+                    result_status = "success"
+                    error_message = None # Clear default error
 
         except Exception as e:
             # Catch unexpected errors OR the explicitly raised Exception from basic analysis/validation failure

@@ -19,7 +19,8 @@ ENV PYTHONUNBUFFERED=1
 ENV NLTK_DATA=/app/nltk_data
 
 # Download required NLTK data directly to the NLTK_DATA directory
-RUN python -m nltk.downloader -d $NLTK_DATA --unzip punkt stopwords wordnet averaged_perceptron_tagger maxent_ne_chunker words
+# Simplified to only essential packages based on current usage
+RUN python -m nltk.downloader -d $NLTK_DATA --unzip punkt stopwords wordnet
 
 # Copy the application code
 COPY src/ ./src/
@@ -27,7 +28,7 @@ COPY config.json ./
 COPY config/ ./config/
 
 # Create necessary directories
-RUN mkdir -p logs data cache
+RUN mkdir -p logs data cache results # Ensure results exists
 
 # Expose the port the app will run on
 EXPOSE 8000

@@ -35,46 +35,11 @@ class SemanticContextAnalyzer:
         """Initialize the semantic context analyzer."""
         logger.info("Initializing SemanticContextAnalyzer...")
 
-        # --- ADD DIAGNOSTIC LOGGING ---
-        logger.info(f"NLTK version: {nltk.__version__}")
-        logger.info(f"NLTK_DATA env var: {os.getenv('NLTK_DATA')}")
-        logger.info(f"Current nltk.data.path: {nltk.data.path}")
-        # Log if the target directory exists
-        nltk_data_dir = os.getenv("NLTK_DATA", "/app/nltk_data") # Default for check
-        logger.info(f"Checking existence of {nltk_data_dir}: {os.path.isdir(nltk_data_dir)}")
-        if os.path.isdir(nltk_data_dir):
-             logger.info(f"Contents of {nltk_data_dir}: {os.listdir(nltk_data_dir)}")
-             # Check specific resource paths
-             logger.info(f"Checking existence of {os.path.join(nltk_data_dir, 'corpora', 'stopwords')}: {os.path.isdir(os.path.join(nltk_data_dir, 'corpora', 'stopwords'))}")
-             logger.info(f"Checking existence of {os.path.join(nltk_data_dir, 'corpora', 'wordnet')}: {os.path.isdir(os.path.join(nltk_data_dir, 'corpora', 'wordnet'))}")
-             logger.info(f"Checking existence of {os.path.join(nltk_data_dir, 'tokenizers', 'punkt')}: {os.path.isdir(os.path.join(nltk_data_dir, 'tokenizers', 'punkt'))}")
-
-        # --- END DIAGNOSTIC LOGGING ---
-
-        # Initialize NLTK components (simple loading)
-        try:
-            self.stop_words = set(stopwords.words('english'))
-            logger.info("Stopwords loaded successfully.")
-        except LookupError:
-            logger.error("LookupError loading stopwords.")
-            self.stop_words = {"a", "an", "the", "in", "on", "at", "for", "to", "of"}
-        except Exception as e:
-            logger.error(f"Unexpected error loading stopwords: {e}")
-            self.stop_words = {"a", "an", "the", "in", "on", "at", "for", "to", "of"}
-
-
-        try:
-            self.lemmatizer = WordNetLemmatizer()
-            logger.info("WordNetLemmatizer initialized.")
-            # Optional: dummy lemmatize to force load? Might hide error timing.
-            # self.lemmatizer.lemmatize("test")
-            # logger.info("WordNet loaded successfully after dummy lemmatize.")
-        except LookupError:
-            logger.error("LookupError initializing WordNetLemmatizer.")
-            self.lemmatizer = None
-        except Exception as e:
-             logger.error(f"Unexpected error initializing WordNetLemmatizer: {e}")
-             self.lemmatizer = None
+        # Initialize NLTK components - Assuming Dockerfile downloaded required resources
+        # If LookupError occurs here or during first use, it indicates a build/environment issue.
+        self.stop_words = set(stopwords.words('english'))
+        self.lemmatizer = WordNetLemmatizer()
+        logger.info("NLTK components (stopwords, WordNetLemmatizer) initialized.")
 
         # Extended stop words for fashion context
         self.fashion_stop_words = {
@@ -91,10 +56,7 @@ class SemanticContextAnalyzer:
         }
         
         # Combine stop words
-        if hasattr(self, 'stop_words'):
-            self.stop_words.update(self.fashion_stop_words)
-        else:
-            self.stop_words = self.fashion_stop_words # Initialize if NLTK load failed
+        self.stop_words.update(self.fashion_stop_words)
         
         # Topic transition phrases
         self.transition_phrases = {
@@ -163,16 +125,18 @@ class SemanticContextAnalyzer:
                 "structure": structure,
                 "keyword_density": keyword_density,
                 "paragraph_relevance": paragraph_relevance,
-                "paragraph_topics": paragraph_topics
+                "paragraph_topics": paragraph_topics,
+                 # Add status explicitly for easier checking later
+                "status": "success"
             }
         except LookupError as nltk_err:
              # Catch specific NLTK LookupError if it still happens
-             logger.error(f"NLTK LookupError during semantic analysis for '{title}': {nltk_err}", exc_info=True)
-             return {"error": f"NLTK resource not found: {nltk_err}"}
+             logger.error(f"NLTK LookupError during semantic analysis for '{title}': {nltk_err}", exc_info=False) # Don't need full traceback here
+             return {"error": f"NLTK resource not found: {nltk_err}", "status": "error"}
         except Exception as e:
              # Catch any other unexpected errors during analysis
              logger.error(f"Unexpected error during semantic analysis for '{title}': {e}", exc_info=True)
-             return {"error": f"Internal error during semantic analysis: {str(e)}"}
+             return {"error": f"Internal error during semantic analysis: {str(e)}", "status": "error"}
     
     def _preprocess_text(self, text: str) -> List[str]:
         """
