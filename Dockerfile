@@ -19,7 +19,7 @@ ENV PYTHONUNBUFFERED=1
 ENV NLTK_DATA=/app/nltk_data
 
 # Download required NLTK data directly to the NLTK_DATA directory
-RUN python -m nltk.downloader -d $NLTK_DATA punkt stopwords wordnet averaged_perceptron_tagger maxent_ne_chunker words punkt_tab
+RUN python -m nltk.downloader -d $NLTK_DATA punkt_tab stopwords wordnet averaged_perceptron_tagger maxent_ne_chunker words
 
 # Ensure NLTK knows about the custom path during subsequent steps/runtime
 RUN python -c "import nltk; nltk.data.path.append('$NLTK_DATA')"
