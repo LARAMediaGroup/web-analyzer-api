@@ -20,7 +20,15 @@ import numpy as np
 from collections import Counter
 import os
 
-# Configure logging
+# --- Add NLTK path explicitly ---
+nltk_data_dir = os.getenv("NLTK_DATA", "/app/nltk_data") # Use env var or default
+if os.path.isdir(nltk_data_dir) and nltk_data_dir not in nltk.data.path:
+    logging.info(f"Adding {nltk_data_dir} to nltk.data.path")
+    nltk.data.path.append(nltk_data_dir)
+else:
+    logging.info(f"NLTK data directory {nltk_data_dir} already in path or does not exist.")
+# --- End NLTK path addition ---
+
 logger = logging.getLogger("web_analyzer.semantic_context_analyzer")
 
 class SemanticContextAnalyzer:
