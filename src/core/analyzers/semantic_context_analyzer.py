@@ -13,12 +13,13 @@ import logging
 from typing import List, Dict, Any, Tuple, Set, Optional
 import nltk
 from nltk.tokenize import sent_tokenize, word_tokenize
-from nltk.corpus import stopwords
+from nltk.corpus import stopwords, wordnet
 from nltk.stem import WordNetLemmatizer
 from nltk.tag import pos_tag
 import numpy as np
 from collections import Counter
 import os
+from nltk.data import find as nltk_find
 
 # Configure logging
 logger = logging.getLogger("web_analyzer.semantic_context_analyzer")
@@ -34,34 +35,47 @@ class SemanticContextAnalyzer:
     def __init__(self):
         """Initialize the semantic context analyzer."""
         logger.info("Initializing SemanticContextAnalyzer...") # Log init start
-        # Initialize NLTK components
+
+        # --- Ensure NLTK Resources Available ---
+        resources_to_check = {
+            "corpora/stopwords": "stopwords",
+            "corpora/wordnet": "wordnet",
+            # Add punkt if word_tokenize/sent_tokenize were failing here instead of later
+            # "tokenizers/punkt": "punkt"
+        }
+        for resource_path, download_name in resources_to_check.items():
+            try:
+                nltk_find(resource_path)
+                logger.info(f"NLTK resource '{download_name}' found.")
+            except LookupError:
+                logger.warning(f"NLTK resource '{download_name}' not found. Attempting download...")
+                try:
+                    # Explicitly use NLTK_DATA path for download if set
+                    nltk_data_dir = os.getenv("NLTK_DATA")
+                    nltk.download(download_name, download_dir=nltk_data_dir)
+                    logger.info(f"NLTK resource '{download_name}' downloaded successfully to {nltk_data_dir or 'default location'}.")
+                    # Verify again after download
+                    nltk_find(resource_path)
+                except Exception as download_e:
+                    logger.error(f"Failed to download NLTK resource '{download_name}': {download_e}. Associated functionality may fail.")
+            except Exception as find_e:
+                 logger.error(f"Error finding NLTK resource '{download_name}': {find_e}")
+        # --- End Resource Check ---
+
+        # Initialize NLTK components using standard loading, assuming check above worked
         try:
             self.stop_words = set(stopwords.words('english'))
-        except LookupError:
-            logger.error("NLTK stopwords resource not found during initialization. Attempting download...")
-            try:
-                nltk.download('stopwords')
-                self.stop_words = set(stopwords.words('english'))
-                logger.info("NLTK stopwords downloaded successfully.")
-            except Exception as download_e:
-                 logger.error(f"Failed to download NLTK stopwords: {download_e}. Stopwords will be limited.")
-                 # Provide basic fallback list
-                 self.stop_words = {"a", "an", "the", "in", "on", "at", "for", "to", "of"}
+        except Exception as e: # Catch potential error even after check
+            logger.error(f"Failed to load stopwords even after check/download attempt: {e}. Using basic list.")
+            self.stop_words = {"a", "an", "the", "in", "on", "at", "for", "to", "of"}
 
         try:
-            # Check if wordnet is available before creating lemmatizer
-            # This might implicitly trigger download if nltk.data.path is set correctly
-            nltk.corpus.wordnet.ensure_loaded()
             self.lemmatizer = WordNetLemmatizer()
-        except LookupError:
-            logger.error("NLTK wordnet resource not found during initialization. Attempting download...")
-            try:
-                nltk.download('wordnet')
-                self.lemmatizer = WordNetLemmatizer()
-                logger.info("NLTK wordnet downloaded successfully.")
-            except Exception as download_e:
-                 logger.error(f"Failed to download NLTK wordnet: {download_e}. Lemmatization may fail.")
-                 self.lemmatizer = None # Indicate lemmatizer is unavailable
+            # Perform a dummy lemmatize to ensure wordnet is fully loaded if needed
+            self.lemmatizer.lemmatize("test")
+        except Exception as e: # Catch potential error even after check
+            logger.error(f"Failed to initialize/load WordNetLemmatizer even after check/download attempt: {e}. Lemmatization may fail.")
+            self.lemmatizer = None # Indicate lemmatizer is unavailable
 
         # Extended stop words for fashion context
         self.fashion_stop_words = {
