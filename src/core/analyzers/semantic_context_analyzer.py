@@ -23,24 +23,6 @@ import os
 # Configure logging
 logger = logging.getLogger("web_analyzer.semantic_context_analyzer")
 
-# --- ADD NLTK PATH CHECK ---
-try:
-    # Explicitly set NLTK data path if env var exists and path not already known
-    nltk_data_path = os.getenv("NLTK_DATA")
-    if nltk_data_path and os.path.isdir(nltk_data_path) and nltk_data_path not in nltk.data.path:
-        nltk.data.path.append(nltk_data_path)
-        logger.info(f"Explicitly added {nltk_data_path} to nltk.data.path: {nltk.data.path}")
-    elif not nltk_data_path:
-        logger.warning("NLTK_DATA environment variable not set.")
-    elif nltk_data_path in nltk.data.path:
-         logger.debug(f"NLTK_DATA path {nltk_data_path} already in nltk.data.path.")
-    elif not os.path.isdir(nltk_data_path):
-         logger.warning(f"NLTK_DATA path {nltk_data_path} provided but is not a valid directory.")
-
-except Exception as path_e:
-     logger.error(f"Error occurred while trying to configure nltk.data.path: {path_e}")
-# --- END NLTK PATH CHECK ---
-
 class SemanticContextAnalyzer:
     """
     Analyzer for understanding semantic context of content.

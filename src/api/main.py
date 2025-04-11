@@ -3,9 +3,26 @@
 import logging.config
 import os
 from typing import List, Optional
-# --- ADDED IMPORT ---
 from datetime import datetime
-# --- END ADDED IMPORT ---
+import nltk # Import nltk
+
+# --- ADD NLTK PATH CONFIGURATION ---
+# Ensure NLTK can find its data in the location specified by the environment variable
+try:
+    nltk_data_path = os.getenv("NLTK_DATA")
+    if nltk_data_path and os.path.isdir(nltk_data_path) and nltk_data_path not in nltk.data.path:
+        nltk.data.path.append(nltk_data_path)
+        logging.info(f"NLTK data path set to: {nltk.data.path}") # Use standard logging
+    elif not nltk_data_path:
+         logging.warning("NLTK_DATA environment variable not set.")
+    # Check if standard resources are loadable, triggering downloads early if necessary
+    # This might be too slow for startup, consider carefully.
+    # nltk.word_tokenize("test")
+    # nltk.corpus.stopwords.words('english')
+    # nltk.stem.WordNetLemmatizer().lemmatize("test")
+except Exception as nltk_e:
+     logging.error(f"Error configuring NLTK data path: {nltk_e}", exc_info=True)
+# --- END NLTK PATH CONFIGURATION ---
 
 from fastapi import FastAPI, HTTPException, Depends, Body, BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -16,14 +33,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.api import schemas, auth, cache, analyzer_integration, enhanced_integration, bulk_integration
 from src.core.knowledge_db.knowledge_database import KnowledgeDatabase
 
-# Configure logging
+# Configure logging (Ensure this happens *after* initial NLTK config if it uses logging)
 log_config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'logging_config.json')
 if os.path.exists(log_config_path):
     logging.config.fileConfig(log_config_path, disable_existing_loggers=False)
 else:
     logging.basicConfig(level=logging.INFO) # Basic config if file not found
 
-logger = logging.getLogger("web_analyzer_api")
+logger = logging.getLogger("web_analyzer_api") # Get logger after basicConfig/fileConfig
 
 # Create FastAPI app instance
 app = FastAPI(
