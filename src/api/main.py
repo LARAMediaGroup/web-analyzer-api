@@ -4,25 +4,27 @@ import logging.config
 import os
 from typing import List, Optional
 from datetime import datetime
-import nltk # Import nltk
+# --- REMOVE NLTK import and path config block ---
+# import nltk # Import nltk
 
 # --- ADD NLTK PATH CONFIGURATION ---
 # Ensure NLTK can find its data in the location specified by the environment variable
-try:
-    nltk_data_path = os.getenv("NLTK_DATA")
-    if nltk_data_path and os.path.isdir(nltk_data_path) and nltk_data_path not in nltk.data.path:
-        nltk.data.path.append(nltk_data_path)
-        logging.info(f"NLTK data path set to: {nltk.data.path}") # Use standard logging
-    elif not nltk_data_path:
-         logging.warning("NLTK_DATA environment variable not set.")
-    # Check if standard resources are loadable, triggering downloads early if necessary
-    # This might be too slow for startup, consider carefully.
-    # nltk.word_tokenize("test")
-    # nltk.corpus.stopwords.words('english')
-    # nltk.stem.WordNetLemmatizer().lemmatize("test")
-except Exception as nltk_e:
-     logging.error(f"Error configuring NLTK data path: {nltk_e}", exc_info=True)
+# try:
+#     nltk_data_path = os.getenv("NLTK_DATA")
+#     if nltk_data_path and os.path.isdir(nltk_data_path) and nltk_data_path not in nltk.data.path:
+#         nltk.data.path.append(nltk_data_path)
+#         logging.info(f"NLTK data path set to: {nltk.data.path}") # Use standard logging
+#     elif not nltk_data_path:
+#          logging.warning("NLTK_DATA environment variable not set.")
+#     # Check if standard resources are loadable, triggering downloads early if necessary
+#     # This might be too slow for startup, consider carefully.
+#     # nltk.word_tokenize("test")
+#     # nltk.corpus.stopwords.words('english')
+#     # nltk.stem.WordNetLemmatizer().lemmatize("test")
+# except Exception as nltk_e:
+#      logging.error(f"Error configuring NLTK data path: {nltk_e}", exc_info=True)
 # --- END NLTK PATH CONFIGURATION ---
+# --- END REMOVE ---
 
 from fastapi import FastAPI, HTTPException, Depends, Body, BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -100,14 +102,14 @@ async def analyze_content_simple(
     logger.info(f"Received simple analysis request for site: {site_info.get('site_id', 'N/A')}")
     # Note: site_id from site_info is currently NOT used by analyzer_integration.analyze_content_task
     result = await analyzer_integration.analyze_content_task(
-        content=request.content,
-        title=request.title,
+            content=request.content,
+            title=request.title,
         site_id=site_info.get('site_id'), # Pass site_id
-        url=request.url
-    )
+            url=request.url
+        )
     if result.get("status") == "error":
         raise HTTPException(status_code=400, detail=result.get("error", "Analysis failed"))
-    return result
+        return result
 
 # Enhanced content analysis endpoint (using EnhancedContentAnalyzer)
 @app.post(f"{api_v1_prefix}/analyze/enhanced",
@@ -131,16 +133,16 @@ async def analyze_content_enhanced(
     logger.info(f"Received enhanced analysis request for site: {site_id}")
     # Pass site_id; analyzer_integration now handles calling EnhancedContentAnalyzer correctly
     result = await enhanced_integration.analyze_content_enhanced(
-        content=request.content,
-        title=request.title,
+            content=request.content,
+            title=request.title,
         site_id=site_id, # Pass validated site_id
-        url=request.url
-    )
+            url=request.url
+        )
     if result.get("status") == "error":
         # Determine appropriate status code based on error type if possible
         status_code = 500 if "Internal" in result.get("error", "") else 400
         raise HTTPException(status_code=status_code, detail=result.get("error", "Analysis failed"))
-    return result
+        return result
 
 # --- Bulk Processing Endpoints ---
 
