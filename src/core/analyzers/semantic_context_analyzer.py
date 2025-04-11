@@ -18,9 +18,28 @@ from nltk.stem import WordNetLemmatizer
 from nltk.tag import pos_tag
 import numpy as np
 from collections import Counter
+import os
 
 # Configure logging
 logger = logging.getLogger("web_analyzer.semantic_context_analyzer")
+
+# --- ADD NLTK PATH CHECK ---
+try:
+    # Explicitly set NLTK data path if env var exists and path not already known
+    nltk_data_path = os.getenv("NLTK_DATA")
+    if nltk_data_path and os.path.isdir(nltk_data_path) and nltk_data_path not in nltk.data.path:
+        nltk.data.path.append(nltk_data_path)
+        logger.info(f"Explicitly added {nltk_data_path} to nltk.data.path: {nltk.data.path}")
+    elif not nltk_data_path:
+        logger.warning("NLTK_DATA environment variable not set.")
+    elif nltk_data_path in nltk.data.path:
+         logger.debug(f"NLTK_DATA path {nltk_data_path} already in nltk.data.path.")
+    elif not os.path.isdir(nltk_data_path):
+         logger.warning(f"NLTK_DATA path {nltk_data_path} provided but is not a valid directory.")
+
+except Exception as path_e:
+     logger.error(f"Error occurred while trying to configure nltk.data.path: {path_e}")
+# --- END NLTK PATH CHECK ---
 
 class SemanticContextAnalyzer:
     """
@@ -32,19 +51,36 @@ class SemanticContextAnalyzer:
     
     def __init__(self):
         """Initialize the semantic context analyzer."""
+        logger.info("Initializing SemanticContextAnalyzer...") # Log init start
         # Initialize NLTK components
         try:
             self.stop_words = set(stopwords.words('english'))
         except LookupError:
-            nltk.download('stopwords')
-            self.stop_words = set(stopwords.words('english'))
-            
+            logger.error("NLTK stopwords resource not found during initialization. Attempting download...")
+            try:
+                nltk.download('stopwords')
+                self.stop_words = set(stopwords.words('english'))
+                logger.info("NLTK stopwords downloaded successfully.")
+            except Exception as download_e:
+                 logger.error(f"Failed to download NLTK stopwords: {download_e}. Stopwords will be limited.")
+                 # Provide basic fallback list
+                 self.stop_words = {"a", "an", "the", "in", "on", "at", "for", "to", "of"}
+
         try:
+            # Check if wordnet is available before creating lemmatizer
+            # This might implicitly trigger download if nltk.data.path is set correctly
+            nltk.corpus.wordnet.ensure_loaded()
             self.lemmatizer = WordNetLemmatizer()
         except LookupError:
-            nltk.download('wordnet')
-            self.lemmatizer = WordNetLemmatizer()
-        
+            logger.error("NLTK wordnet resource not found during initialization. Attempting download...")
+            try:
+                nltk.download('wordnet')
+                self.lemmatizer = WordNetLemmatizer()
+                logger.info("NLTK wordnet downloaded successfully.")
+            except Exception as download_e:
+                 logger.error(f"Failed to download NLTK wordnet: {download_e}. Lemmatization may fail.")
+                 self.lemmatizer = None # Indicate lemmatizer is unavailable
+
         # Extended stop words for fashion context
         self.fashion_stop_words = {
             "wear", "wearing", "wore", "worn", "looks", "looking", 
@@ -60,7 +96,10 @@ class SemanticContextAnalyzer:
         }
         
         # Combine stop words
-        self.stop_words.update(self.fashion_stop_words)
+        if hasattr(self, 'stop_words'):
+            self.stop_words.update(self.fashion_stop_words)
+        else:
+            self.stop_words = self.fashion_stop_words # Initialize if NLTK load failed
         
         # Topic transition phrases
         self.transition_phrases = {
@@ -73,6 +112,7 @@ class SemanticContextAnalyzer:
             "second", "secondly", "third", "thirdly", "finally", "lastly",
             "to conclude", "in conclusion", "to sum up", "in summary"
         }
+        logger.info("SemanticContextAnalyzer initialized.") # Log init end
     
     def analyze_content(self, content: str, title: str = "") -> Dict[str, Any]:
         """
@@ -85,47 +125,59 @@ class SemanticContextAnalyzer:
         Returns:
             Dict[str, Any]: Analysis results including topics and structure
         """
+        logger.debug(f"Starting semantic context analysis for title: '{title}'")
         # Basic data validation
         if not content or not isinstance(content, str):
+            logger.warning("Semantic context analysis skipped: Content is empty or invalid.")
             return {
-                "primary_topic": None,
-                "subtopics": [],
-                "structure": {},
-                "keyword_density": {},
-                "paragraph_relevance": {}
+                "primary_topic": None, "subtopics": [], "structure": {},
+                "keyword_density": {}, "paragraph_relevance": {}, "paragraph_topics": [],
+                "error": "Input content is empty or invalid." # Add error key
             }
         
-        # Preprocess content
-        preprocessed_content = self._preprocess_text(content)
-        
-        # Split into paragraphs
-        paragraphs = self._split_into_paragraphs(content)
-        preprocessed_paragraphs = [self._preprocess_text(p) for p in paragraphs]
-        
-        # Extract topics
-        primary_topic, subtopics = self._extract_topics(content, title)
-        
-        # Analyze paragraph structure and relationships
-        paragraph_topics = self._analyze_paragraph_topics(preprocessed_paragraphs)
-        
-        # Calculate keyword density
-        keyword_density = self._calculate_keyword_density(preprocessed_content)
-        
-        # Calculate relevance between paragraphs
-        paragraph_relevance = self._calculate_paragraph_relevance(preprocessed_paragraphs)
-        
-        # Identify content structure
-        structure = self._identify_content_structure(paragraphs, paragraph_topics)
-        
-        # Build final analysis
-        return {
-            "primary_topic": primary_topic,
-            "subtopics": subtopics,
-            "structure": structure,
-            "keyword_density": keyword_density,
-            "paragraph_relevance": paragraph_relevance,
-            "paragraph_topics": paragraph_topics
-        }
+        try: # Wrap main logic in try/except
+            # Preprocess content
+            preprocessed_content = self._preprocess_text(content)
+            
+            # Split into paragraphs
+            paragraphs = self._split_into_paragraphs(content)
+            preprocessed_paragraphs = [self._preprocess_text(p) for p in paragraphs]
+            
+            # Extract topics
+            topic_analysis = self._extract_topics(content, title)
+            primary_topic = topic_analysis.get("primary_topic")
+            subtopics = topic_analysis.get("subtopics", [])
+            
+            # Analyze paragraph structure and relationships
+            paragraph_topics = self._analyze_paragraph_topics(preprocessed_paragraphs)
+            
+            # Calculate keyword density
+            keyword_density = self._calculate_keyword_density(preprocessed_content)
+            
+            # Calculate relevance between paragraphs
+            paragraph_relevance = self._calculate_paragraph_relevance(preprocessed_paragraphs)
+            
+            # Identify content structure
+            structure = self._identify_content_structure(paragraphs, paragraph_topics)
+            
+            # Build final analysis
+            logger.debug(f"Semantic context analysis completed successfully for title: '{title}'")
+            return {
+                "primary_topic": primary_topic,
+                "subtopics": subtopics,
+                "structure": structure,
+                "keyword_density": keyword_density,
+                "paragraph_relevance": paragraph_relevance,
+                "paragraph_topics": paragraph_topics
+            }
+        except LookupError as nltk_err:
+             # Catch specific NLTK LookupError if it still happens
+             logger.error(f"NLTK LookupError during semantic analysis for '{title}': {nltk_err}", exc_info=True)
+             return {"error": f"NLTK resource not found: {nltk_err}"}
+        except Exception as e:
+             # Catch any other unexpected errors during analysis
+             logger.error(f"Unexpected error during semantic analysis for '{title}': {e}", exc_info=True)
+             return {"error": f"Internal error during semantic analysis: {str(e)}"}
     
     def _preprocess_text(self, text: str) -> List[str]:
         """

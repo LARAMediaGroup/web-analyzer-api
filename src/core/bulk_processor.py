@@ -438,15 +438,26 @@ class BulkContentProcessor:
             if not content or not title:
                 error_message = "Missing content or title"
                 logger.warning(f"Skipping item {item_id}: {error_message}")
+                result_status = "error" # Ensure status is error before finally
                 # Use finally block to construct and return result
+                # Need to jump to finally block or ensure error_message is used
+                raise ValueError(error_message) # Raise exception to go to except block
 
             else:
                 # --- Core Processing ---
                 # 1. Perform basic analysis (required for KB)
                 # NOTE: Analyzer instance here is self.analyzer (EnhancedContentAnalyzer)
-                # REMOVED url=url argument as _perform_basic_analysis doesn't accept it
                 analysis_for_kb = self.analyzer._perform_basic_analysis(content, title)
                 analysis_output = analysis_for_kb # Store this analysis
+
+                # --- ADD ERROR CHECK for basic analysis result ---
+                if isinstance(analysis_output, dict) and analysis_output.get("error"):
+                    error_message = f"Basic analysis failed: {analysis_output['error']}"
+                    logger.warning(f"Processing failed for item {item_id} due to basic analysis error: {error_message}")
+                    result_status = "error" # Ensure status is error before finally
+                    # Raise exception to jump to the main except block, ensuring correct final status/error reporting
+                    raise Exception(error_message)
+                # --- END ERROR CHECK ---
 
                 # 2. Generate embedding (based on config field)
                 embedding_bytes = None
@@ -463,8 +474,10 @@ class BulkContentProcessor:
                 if embedding_source_text:
                     try:
                         # Use KB's method to generate embedding (it handles model loading internally)
+                        # Ensure _generate_embedding returns numpy array
                         embedding = self.knowledge_db._generate_embedding(embedding_source_text)
                         if embedding is not None:
+                           # Ensure _embedding_to_bytes exists and handles numpy array
                            embedding_bytes = self.knowledge_db._embedding_to_bytes(embedding)
                            if embedding_bytes:
                                logger.debug(f"Generated embedding ({len(embedding_bytes)} bytes) for {item_id} from '{embedding_field}'.")
@@ -481,8 +494,9 @@ class BulkContentProcessor:
                     "title": title,
                     "url": url, # Pass original URL object; add_content handles str conversion
                     "content": content, # Pass content for hash generation in add_content
-                    "entities": analysis_for_kb.get("fashion_entities", {}),
+                    "entities": analysis_for_kb.get("fashion_entities", {}), # Use analysis result
                     "topics": {
+                        # Extract topics from the basic analysis result
                         "primary": [analysis_for_kb.get("primary_topic")] if analysis_for_kb.get("primary_topic") else [],
                         "sub": analysis_for_kb.get("subtopics", [])
                     }
@@ -509,14 +523,16 @@ class BulkContentProcessor:
                         try:
                             # Call the full analyzer method which uses the KB
                             # Use self.analyzer instance
-                            analysis_result_for_suggestions = self.analyzer.analyze_content(
-                                content=content, title=title, site_id=site_id, url=url
+                            # analyze_content needs string URL
+                            analysis_result_for_suggestions = await self.analyzer.analyze_content(
+                                content=content, title=title, site_id=site_id, url=url_str
                             )
                             if analysis_result_for_suggestions:
                                 if analysis_result_for_suggestions.get("status") == "success":
                                     link_suggestions = analysis_result_for_suggestions.get("link_suggestions", [])
                                     # Update analysis_output with potentially richer data from full analysis?
-                                    # analysis_output = analysis_result_for_suggestions.get("analysis", analysis_output)
+                                    # Convert target URLs back to string if needed for result dict? Schema expects HttpUrl.
+                                    # Let's assume analyze_content returns suggestions compliant with schema expectations (or handle conversion)
                                     logger.info(f"Generated {len(link_suggestions)} suggestions for item {item_id}.")
                                 else:
                                     suggestion_error_msg = analysis_result_for_suggestions.get("error", "Suggestion generation failed with unknown error")
@@ -537,11 +553,16 @@ class BulkContentProcessor:
                 error_message = None # Clear default error
 
         except Exception as e:
-            # Catch unexpected errors during the main processing steps
-            logger.error(f"Unhandled error processing item {item_id} ('{title}'): {str(e)}", exc_info=True)
+            # Catch unexpected errors OR the explicitly raised Exception from basic analysis/validation failure
+            log_msg = f"Error processing item {item_id} ('{title}'): {str(e)}"
+            # Check if it's one of our specific raised exceptions to avoid redundant traceback logging
+            if "Basic analysis failed:" not in str(e) and "Missing content or title" not in str(e):
+                logger.error(log_msg, exc_info=True) # Log full traceback for unexpected errors
+            else:
+                 logger.error(log_msg) # Log just the message for known/handled errors
+
             result_status = "error"
-            error_message = f"Unhandled exception: {str(e)}"
-            # Ensure db_success reflects failure if error occurred before DB call finished
+            error_message = str(e) # Use the exception message directly
             db_success = False # Assume DB failed if exception happened
 
         finally:
@@ -549,14 +570,19 @@ class BulkContentProcessor:
             processing_time = time.time() - start_time
             url_str = str(item.get("url", "")) # Ensure final URL is string
 
+            # Ensure analysis_output is sanitized dict, handle case where it might be error dict
+            final_analysis_output = {}
+            if isinstance(analysis_output, dict) and not analysis_output.get("error"):
+                final_analysis_output = self._sanitize_dict_for_json(analysis_output)
+
             result = {
                 "id": item_id,
                 "title": title,
                 "url": url_str,
-                "status": result_status,
-                "error": error_message, # None if successful
+                "status": result_status, # Use status determined in try/except blocks
+                "error": error_message, # Use error message from try/except blocks
                 "link_suggestions": link_suggestions,
-                "analysis": self._sanitize_dict_for_json(analysis_output), # Sanitize analysis dict
+                "analysis": final_analysis_output, # Sanitize analysis dict
                 "processing_time": round(processing_time, 3),
                 "in_knowledge_db": db_success,
                 "suggestion_error": suggestion_error_msg # Add specific suggestion error if any
