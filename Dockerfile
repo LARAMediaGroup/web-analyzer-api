@@ -14,7 +14,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Download required NLTK data directly to the NLTK_DATA directory
-RUN python -m nltk.downloader -d /app/nltk_data punkt stopwords wordnet averaged_perceptron_tagger maxent_ne_chunker words
+# --- ADDED 'punkt_tab' ---
+RUN python -m nltk.downloader -d /app/nltk_data punkt stopwords wordnet averaged_perceptron_tagger maxent_ne_chunker words punkt_tab
+# --- END ADD ---
 
 # Copy the application code
 COPY src/ ./src/
