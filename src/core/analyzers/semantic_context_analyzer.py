@@ -13,13 +13,12 @@ import logging
 from typing import List, Dict, Any, Tuple, Set, Optional
 import nltk
 from nltk.tokenize import sent_tokenize, word_tokenize
-from nltk.corpus import stopwords, wordnet
+from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from nltk.tag import pos_tag
 import numpy as np
 from collections import Counter
 import os
-from nltk.data import find as nltk_find
 
 # Configure logging
 logger = logging.getLogger("web_analyzer.semantic_context_analyzer")
@@ -34,48 +33,48 @@ class SemanticContextAnalyzer:
     
     def __init__(self):
         """Initialize the semantic context analyzer."""
-        logger.info("Initializing SemanticContextAnalyzer...") # Log init start
+        logger.info("Initializing SemanticContextAnalyzer...")
 
-        # --- Ensure NLTK Resources Available ---
-        resources_to_check = {
-            "corpora/stopwords": "stopwords",
-            "corpora/wordnet": "wordnet",
-            # Add punkt if word_tokenize/sent_tokenize were failing here instead of later
-            # "tokenizers/punkt": "punkt"
-        }
-        for resource_path, download_name in resources_to_check.items():
-            try:
-                nltk_find(resource_path)
-                logger.info(f"NLTK resource '{download_name}' found.")
-            except LookupError:
-                logger.warning(f"NLTK resource '{download_name}' not found. Attempting download...")
-                try:
-                    # Explicitly use NLTK_DATA path for download if set
-                    nltk_data_dir = os.getenv("NLTK_DATA")
-                    nltk.download(download_name, download_dir=nltk_data_dir)
-                    logger.info(f"NLTK resource '{download_name}' downloaded successfully to {nltk_data_dir or 'default location'}.")
-                    # Verify again after download
-                    nltk_find(resource_path)
-                except Exception as download_e:
-                    logger.error(f"Failed to download NLTK resource '{download_name}': {download_e}. Associated functionality may fail.")
-            except Exception as find_e:
-                 logger.error(f"Error finding NLTK resource '{download_name}': {find_e}")
-        # --- End Resource Check ---
+        # --- ADD DIAGNOSTIC LOGGING ---
+        logger.info(f"NLTK version: {nltk.__version__}")
+        logger.info(f"NLTK_DATA env var: {os.getenv('NLTK_DATA')}")
+        logger.info(f"Current nltk.data.path: {nltk.data.path}")
+        # Log if the target directory exists
+        nltk_data_dir = os.getenv("NLTK_DATA", "/app/nltk_data") # Default for check
+        logger.info(f"Checking existence of {nltk_data_dir}: {os.path.isdir(nltk_data_dir)}")
+        if os.path.isdir(nltk_data_dir):
+             logger.info(f"Contents of {nltk_data_dir}: {os.listdir(nltk_data_dir)}")
+             # Check specific resource paths
+             logger.info(f"Checking existence of {os.path.join(nltk_data_dir, 'corpora', 'stopwords')}: {os.path.isdir(os.path.join(nltk_data_dir, 'corpora', 'stopwords'))}")
+             logger.info(f"Checking existence of {os.path.join(nltk_data_dir, 'corpora', 'wordnet')}: {os.path.isdir(os.path.join(nltk_data_dir, 'corpora', 'wordnet'))}")
+             logger.info(f"Checking existence of {os.path.join(nltk_data_dir, 'tokenizers', 'punkt')}: {os.path.isdir(os.path.join(nltk_data_dir, 'tokenizers', 'punkt'))}")
 
-        # Initialize NLTK components using standard loading, assuming check above worked
+        # --- END DIAGNOSTIC LOGGING ---
+
+        # Initialize NLTK components (simple loading)
         try:
             self.stop_words = set(stopwords.words('english'))
-        except Exception as e: # Catch potential error even after check
-            logger.error(f"Failed to load stopwords even after check/download attempt: {e}. Using basic list.")
+            logger.info("Stopwords loaded successfully.")
+        except LookupError:
+            logger.error("LookupError loading stopwords.")
             self.stop_words = {"a", "an", "the", "in", "on", "at", "for", "to", "of"}
+        except Exception as e:
+            logger.error(f"Unexpected error loading stopwords: {e}")
+            self.stop_words = {"a", "an", "the", "in", "on", "at", "for", "to", "of"}
+
 
         try:
             self.lemmatizer = WordNetLemmatizer()
-            # Perform a dummy lemmatize to ensure wordnet is fully loaded if needed
-            self.lemmatizer.lemmatize("test")
-        except Exception as e: # Catch potential error even after check
-            logger.error(f"Failed to initialize/load WordNetLemmatizer even after check/download attempt: {e}. Lemmatization may fail.")
-            self.lemmatizer = None # Indicate lemmatizer is unavailable
+            logger.info("WordNetLemmatizer initialized.")
+            # Optional: dummy lemmatize to force load? Might hide error timing.
+            # self.lemmatizer.lemmatize("test")
+            # logger.info("WordNet loaded successfully after dummy lemmatize.")
+        except LookupError:
+            logger.error("LookupError initializing WordNetLemmatizer.")
+            self.lemmatizer = None
+        except Exception as e:
+             logger.error(f"Unexpected error initializing WordNetLemmatizer: {e}")
+             self.lemmatizer = None
 
         # Extended stop words for fashion context
         self.fashion_stop_words = {
